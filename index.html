@@ -1,0 +1,964 @@
+<!doctype html>
+<!--
+  =============================================================================
+  PaidUp — know what's paid, what's not.
+  A product of Enlightened Global Solutions (EGS)
+  Copyright (c) 2026 Enlightened Global Solutions. All rights reserved.
+  Unauthorised copying, modification, or distribution of this file is
+  prohibited. Source-visible is not open-source.
+
+  Built on the EGS platform skeleton, to EGS-STANDARDS.md, from birth.
+  Storage prefix "paidup" is PERMANENT (Tier 1 rule 9).
+  PaidUp has no freemium gate by design: 100% free / pay-what-you-want,
+  so the gate standard row is deliberately, correctly absent (see §2 ◇ rule).
+  =============================================================================
+-->
+<!-- EGS-STD:skeleton -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PaidUp</title>
+<meta name="description" content="Know what's paid, what's not. A private, on-device bill tracker by EGS.">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F6F3EC">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1A1E25">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<!-- EGS-STD:coldopen-version -->
+<script>window.EGS_VERSION='2026.08.05-0001';</script>
+<style>
+/* ============ THEME TOKENS ============ */
+/* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
+:root{
+  --bg:#F6F3EC; --surface:#FFFFFF; --surface2:#EFEAE0;
+  --text:#23282E; --muted:#68717A; --border:#E1DACC;
+  --accent:#2E8A6B; --accent-ink:#FFFFFF;
+  --danger:#B3402F; --warn:#A3711B; --ok:#2E8A6B;
+  --shadow:0 1px 4px rgba(35,40,46,.08);
+}
+html[data-theme="dark"]{
+  --bg:#14171D; --surface:#1C212A; --surface2:#232935;
+  --text:#E9E6DE; --muted:#9AA3AD; --border:#2B323D;
+  --accent:#4FAE8C; --accent-ink:#0F1418;
+  --danger:#E06452; --warn:#E0A83F; --ok:#4FAE8C;
+  --shadow:0 1px 4px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg); color:var(--text);
+  -webkit-text-size-adjust:100%; overscroll-behavior-y:contain;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:var(--text)}
+a{color:var(--accent)}
+h1,h2,h3{font-weight:650;letter-spacing:.2px}
+.hide{display:none !important}
+
+/* ============ LAYOUT ============ */
+header.app{
+  position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:8px;
+  padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+  background:var(--bg);border-bottom:1px solid var(--border);
+}
+header.app h1{font-size:20px;flex:1}
+header.app h1 span{color:var(--accent)}
+.icon-btn{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px}
+.icon-btn:active{background:var(--surface2)}
+.icon-btn svg{width:22px;height:22px;stroke:var(--text);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+main{padding:12px 14px 96px;max-width:640px;margin:0 auto}
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;
+  background:var(--surface);border-top:1px solid var(--border);
+  padding:6px 8px calc(8px + env(safe-area-inset-bottom));
+}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;min-height:48px;border-radius:12px;color:var(--muted);font-size:11px}
+.tab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tab.active{color:var(--accent)}
+
+/* ============ CARDS & ROWS ============ */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden}
+.card .pad{padding:14px}
+.sec-title{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin:16px 2px 8px;display:flex;align-items:center;gap:6px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);border-left:4px solid transparent;min-height:56px}
+.row:last-child{border-bottom:none}
+.row.st-overdue{border-left-color:var(--danger)}
+.row.st-soon{border-left-color:var(--warn)}
+.row.st-upcoming{border-left-color:var(--muted)}
+.row.st-paid{border-left-color:var(--ok);opacity:.72}
+.row .main{flex:1;min-width:0}
+.row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .sub{font-size:12.5px;color:var(--muted);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chip{font-size:11px;padding:2px 7px;border-radius:99px;border:1px solid var(--border);background:var(--surface2)}
+.chip.auto{color:var(--accent);border-color:var(--accent)}
+.amt{font-variant-numeric:tabular-nums;font-weight:600;padding:8px 6px;border-radius:8px;min-width:64px;text-align:right}
+.amt:active{background:var(--surface2)}
+.amt.unset{color:var(--muted);font-weight:400}
+.paycircle{width:44px;height:44px;display:flex;align-items:center;justify-content:center;flex:none}
+.paycircle .ring{width:26px;height:26px;border-radius:50%;border:2px solid var(--muted);display:flex;align-items:center;justify-content:center;transition:all .15s}
+.row.st-paid .paycircle .ring{border-color:var(--ok);background:var(--ok)}
+.paycircle svg{width:14px;height:14px;stroke:var(--accent-ink);fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.row.st-paid .paycircle svg{opacity:1}
+.due{font-size:12.5px;color:var(--muted)}
+.due.overdue{color:var(--danger);font-weight:600}
+.due.soon{color:var(--warn);font-weight:600}
+
+/* attention banner — shows every open when something needs paying; deliberately not snoozable */
+.attn{display:flex;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--warn);border-left:5px solid var(--warn);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.attn.has-overdue{border-color:var(--danger);border-left-color:var(--danger)}
+.attn b{font-weight:650}
+
+/* notice banners (install / backup) — one at a time, dismissible */
+.notice{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+.notice .txt{flex:1;font-size:13.5px}
+.notice .txt b{display:block;margin-bottom:2px}
+.notice .actions{display:flex;flex-direction:column;gap:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--accent);color:var(--accent-ink);font-weight:600;border-radius:10px;padding:10px 14px;min-height:44px}
+.btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+.btn.small{min-height:36px;padding:7px 10px;font-size:13px}
+.btn.danger{background:var(--danger);color:#fff}
+.btn.block{width:100%;margin-top:8px}
+.btn:active{filter:brightness(.92)}
+
+/* refresh banner (new version while open) */
+#refreshBanner{position:fixed;left:12px;right:12px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:40;display:flex;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px;box-shadow:var(--shadow)}
+
+/* empty states */
+.empty{padding:34px 18px;text-align:center;color:var(--muted)}
+.empty .big{font-size:34px;margin-bottom:8px}
+.empty p{font-size:14px;line-height:1.45;margin-bottom:6px}
+
+/* forms & modal */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+.field input[type=text],.field input[type=number],.field input[type=date],.field select{
+  width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 12px;min-height:44px}
+.seg{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.seg button{flex:1;padding:10px 6px;min-height:44px;color:var(--muted);font-weight:600;font-size:13.5px}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+.modal-wrap{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}
+.modal{background:var(--bg);border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:88vh;overflow:auto;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+.modal h2{font-size:17px;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.modal .btnrow{display:flex;gap:10px;margin-top:16px}
+.modal .btnrow .btn{flex:1}
+
+/* info / beginner mode */
+/* EGS-STD:infomode */
+.info-i{width:26px;height:26px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);font-size:12px;font-style:italic;font-family:Georgia,serif;vertical-align:middle}
+body.expert .info-i{display:none}
+#infoSheet .modal p{font-size:14.5px;line-height:1.55;color:var(--text)}
+
+/* settings-style link lists */
+.linklist button,.linklist a{display:flex;width:100%;align-items:center;gap:10px;padding:14px;min-height:52px;border-bottom:1px solid var(--border);text-decoration:none;color:var(--text);font-size:15px;text-align:left}
+.linklist button:last-child,.linklist a:last-child{border-bottom:none}
+.linklist .grow{flex:1}
+.linklist .val{color:var(--muted);font-size:13.5px}
+.chev{width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* payment tabs on support page */
+.paytabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.paytabs button{padding:8px 12px;min-height:40px;border-radius:99px;border:1px solid var(--border);background:var(--surface2);font-size:13.5px}
+.paytabs button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.paybody{font-size:14.5px;line-height:1.55}
+.paybody code{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:13px;word-break:break-all}
+
+.prose{font-size:14.5px;line-height:1.6}
+.prose h3{margin:16px 0 6px;font-size:15px}
+.prose p{margin-bottom:10px}
+.prose ul{margin:0 0 10px 18px}
+.backlink{display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;color:var(--muted);font-size:14px;min-height:44px}
+.foot{color:var(--muted);font-size:12px;text-align:center;padding:18px 0 4px}
+.yeartotal{display:flex;justify-content:space-between;padding:10px 14px;background:var(--surface2);font-weight:600;font-size:14px}
+.cat-emoji{font-size:20px;width:28px;text-align:center;flex:none}
+</style>
+</head>
+<body>
+
+<header class="app">
+  <h1>Paid<span>Up</span></h1>
+  <!-- EGS-STD:share-v2 — landing-header share icon; same handler as the Support-page share block -->
+  <button class="icon-btn" data-action="share" aria-label="Share PaidUp">
+    <svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.6"/><circle cx="17.5" cy="5.5" r="2.6"/><circle cx="17.5" cy="18.5" r="2.6"/><path d="M8.3 10.8 15.2 6.8M8.3 13.2 15.2 17.2"/></svg>
+  </button>
+</header>
+
+<main id="main"></main>
+
+<nav class="tabbar" id="tabbar">
+  <button class="tab active" data-action="nav" data-screen="home">
+    <svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/></svg>Home
+  </button>
+  <button class="tab" data-action="nav" data-screen="bills">
+    <svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Bills
+  </button>
+  <button class="tab" data-action="nav" data-screen="settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/></svg>Settings
+  </button>
+</nav>
+
+<div id="banners"></div>
+<div id="modalHost"></div>
+<div id="infoSheet"></div>
+<div id="refreshBanner" class="hide">
+  <div class="txt" style="flex:1;font-size:14px"><b>PaidUp was updated.</b></div>
+  <button class="btn small" data-action="refresh-app">Refresh</button>
+</div>
+
+<script>
+'use strict';
+/* =============================================================================
+   PaidUp app logic. Copyright (c) 2026 EGS. All rights reserved.
+   ============================================================================= */
+
+/* ---------- constants ---------- */
+var APP_NAME='paidup';
+var APP_URL='https://enlightenedglobalsolutions-coder.github.io/paidup/';
+var SCHEMA_CURRENT=1;
+var K_DATA='paidup.data';
+var K_BAK='paidup.data__bak';
+var K_INSTALL_DISMISS='paidup.installPromptDismissed';   /* app-prefixed, always (shared-origin rule) */
+var K_BACKUP_SNOOZE='paidup.backupNudgeSnoozeUntil';
+var PAYMENT_CONFIG={
+  interacEmail:'egspay.pay@gmail.com',
+  interacMemo:'PaidUp Donation',
+  btc:'', stripeUrl:'', paypalUrl:'', wiseUrl:''   /* placeholders — fill per real deployment */
+};
+var EGS_APPS=[ /* EGS-STD:apps-directory — seeded from EGS-STANDARDS.md §3a; sync at deploy, don't hand-drift */
+  {name:'What\u2019s For Dinner', line:'Find dinner without the scroll.', url:'https://wfdegs.ca'},
+  {name:'Notebuilt', line:'A field notebook for trade crews.', url:'https://enlightenedglobalsolutions-coder.github.io/-notebuilt/'},
+  {name:'Stagger', line:'Staggered floor and panel layouts, planned properly.', url:'https://enlightenedglobalsolutions-coder.github.io/paneling-planner/'},
+  {name:'Rollworthy', line:'Vehicle check-outs and inspections, on the device.', url:'https://enlightenedglobalsolutions-coder.github.io/rollworthy/'},
+  {name:'Kept', line:'A quiet, private place for the people you\u2019ve loved.', url:''}
+];
+var CADENCES=[
+  {id:'weekly',   label:'Weekly'},
+  {id:'biweekly', label:'Every 2 weeks'},
+  {id:'monthly',  label:'Monthly'},
+  {id:'quarterly',label:'Every 3 months'},
+  {id:'annual',   label:'Yearly'}
+];
+var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var WEEKDAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+/* ---------- tiny helpers ---------- */
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function $(sel){ return document.querySelector(sel); }
+function money(n){ return '$'+Number(n).toFixed(2); }
+function todayStr(){ return ymd(new Date()); }
+
+/* === EGS PURE CADENCE LOGIC START ===
+   Pure, DOM-free, behavior-tested (test_paidup.js) against real dates for all
+   five cadences. If you change ANYTHING here, re-run the tests. */
+function pad2(n){ return String(n).padStart(2,'0'); }
+function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+function parseYmd(s){ var p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+function daysInMonth(y,m){ return new Date(y,m+1,0).getDate(); }
+function clampDay(y,m,day){ return Math.min(day||1, daysInMonth(y,m)); }
+function quarterOf(m){ return Math.floor(m/3)+1; }
+
+/* All occurrences of a bill that fall due inside month m (0-based) of year y.
+   Returns [{period, dueDate}] — period is the stable key one payment record
+   exists under; dueDate is 'YYYY-MM-DD'. */
+function occurrencesInMonth(bill,y,m){
+  var out=[];
+  if(bill.cadence==='monthly'){
+    out.push({period:y+'-'+pad2(m+1), dueDate:ymd(new Date(y,m,clampDay(y,m,bill.dueDay)))});
+  } else if(bill.cadence==='quarterly'){
+    var anchor=(bill.dueMonth==null?0:bill.dueMonth);
+    if((((m-anchor)%3)+3)%3===0){
+      out.push({period:y+'-Q'+quarterOf(m), dueDate:ymd(new Date(y,m,clampDay(y,m,bill.dueDay)))});
+    }
+  } else if(bill.cadence==='annual'){
+    if(m===(bill.dueMonth==null?0:bill.dueMonth)){
+      out.push({period:String(y), dueDate:ymd(new Date(y,m,clampDay(y,m,bill.dueDay)))});
+    }
+  } else if(bill.cadence==='weekly'){
+    var dim=daysInMonth(y,m), wd=(bill.dueWeekday==null?1:bill.dueWeekday);
+    for(var d=1;d<=dim;d++){
+      var dt=new Date(y,m,d);
+      if(dt.getDay()===wd) out.push({period:ymd(dt), dueDate:ymd(dt)});
+    }
+  } else if(bill.cadence==='biweekly'){
+    if(!bill.anchorDate) return out;
+    var a=parseYmd(bill.anchorDate);
+    var first=new Date(y,m,1), last=new Date(y,m,daysInMonth(y,m));
+    var msDay=86400000;
+    var k=Math.max(0, Math.floor((first-a)/(14*msDay))-2); /* start early; DST-safe date math below */
+    for(;;k++){
+      var dt2=new Date(a.getFullYear(),a.getMonth(),a.getDate()+14*k);
+      if(dt2>last) break;
+      if(dt2>=first) out.push({period:ymd(dt2), dueDate:ymd(dt2)});
+    }
+  }
+  return out;
+}
+
+/* overdue / soon (<=5 days) / upcoming / paid */
+function statusFor(p,today){
+  if(p.paid) return 'paid';
+  if(p.dueDate<today) return 'overdue';
+  var diff=Math.round((parseYmd(p.dueDate)-parseYmd(today))/86400000);
+  return diff<=5 ? 'soon' : 'upcoming';
+}
+
+/* human label for a stored period key */
+function periodDisplay(period){
+  if(/^\d{4}-\d{2}$/.test(period)){ var p=period.split('-'); return MONTHS[+p[1]-1]+' '+p[0]; }
+  if(/^\d{4}-Q\d$/.test(period)){ return period.slice(5)+' '+period.slice(0,4); }
+  if(/^\d{4}$/.test(period)){ return period; }
+  if(/^\d{4}-\d{2}-\d{2}$/.test(period)){ var d=parseYmd(period); return MONTHS[d.getMonth()].slice(0,3)+' '+d.getDate()+', '+d.getFullYear(); }
+  return period;
+}
+/* === EGS PURE CADENCE LOGIC END === */
+
+/* ---------- storage (EGS-STD:schema) ----------
+   One store under K_DATA, schema-numbered, and the loader BRANCHES on the
+   number — written AND read, both halves (the Rollworthy lesson). safeSave
+   backs up to __bak before every write and refuses to write an empty store
+   over real data unless the caller explicitly says so. */
+var db=null;
+
+function emptyDb(){
+  return { schema:SCHEMA_CURRENT,
+    categories:[
+      {id:uid(),label:'Housing',icon:'\uD83C\uDFE0'},
+      {id:uid(),label:'Utilities',icon:'\uD83D\uDCA1'},
+      {id:uid(),label:'Phone & Internet',icon:'\uD83D\uDCF6'},
+      {id:uid(),label:'Insurance',icon:'\uD83D\uDEE1\uFE0F'},
+      {id:uid(),label:'Vehicle',icon:'\uD83D\uDE97'},
+      {id:uid(),label:'Subscriptions',icon:'\uD83D\uDCFA'},
+      {id:uid(),label:'Other',icon:'\uD83D\uDCC1'}
+    ],
+    bills:[], payments:[],
+    settings:{ theme:'system', beginner:true, lastBackupAt:null }
+  };
+}
+function migrate(obj){
+  if(!obj || typeof obj!=='object') throw new Error('bad store');
+  if(obj.schema==null){ obj.schema=1; }               /* pre-schema legacy shape -> v1 */
+  if(obj.schema===1){
+    if(!obj.settings) obj.settings={theme:'system',beginner:true,lastBackupAt:null};
+    if(!Array.isArray(obj.categories)) obj.categories=[];
+    if(!Array.isArray(obj.bills)) obj.bills=[];
+    if(!Array.isArray(obj.payments)) obj.payments=[];
+    return obj;                                        /* current — no migration needed */
+  }
+  throw new Error('PaidUp data was saved by a newer version (schema '+obj.schema+'). Update the app before opening this data.');
+}
+function hasRealData(o){ return !!(o && ((o.bills&&o.bills.length) || (o.payments&&o.payments.length))); }
+function safeLoad(){
+  var raw=null, obj=null;
+  try{ raw=localStorage.getItem(K_DATA); if(raw) obj=migrate(JSON.parse(raw)); }
+  catch(e){ obj=null; }
+  if(!obj){
+    try{ var b=localStorage.getItem(K_BAK); if(b){ obj=migrate(JSON.parse(b)); } }catch(e2){ obj=null; }
+  }
+  return obj || emptyDb();
+}
+function safeSave(opts){
+  opts=opts||{};
+  try{
+    var current=localStorage.getItem(K_DATA);
+    if(current && !opts.allowShrinkToEmpty){
+      try{ if(hasRealData(JSON.parse(current)) && !hasRealData(db)){
+        console.warn('safeSave blocked: refusing to write empty over real data'); return false;
+      }}catch(e){}
+    }
+    if(current) localStorage.setItem(K_BAK,current);   /* backup before any write (Tier 1) */
+    localStorage.setItem(K_DATA,JSON.stringify(db));
+    return true;
+  }catch(e){ console.error('save failed',e); return false; }
+}
+
+/* ---------- derived ---------- */
+function catById(id){ for(var i=0;i<db.categories.length;i++) if(db.categories[i].id===id) return db.categories[i]; return null; }
+function billById(id){ for(var i=0;i<db.bills.length;i++) if(db.bills[i].id===id) return db.bills[i]; return null; }
+function payById(id){ for(var i=0;i<db.payments.length;i++) if(db.payments[i].id===id) return db.payments[i]; return null; }
+function lastKnownAmount(bill){
+  var best=null;
+  for(var i=0;i<db.payments.length;i++){
+    var p=db.payments[i];
+    if(p.billId===bill.id && p.amount>0){ if(!best || p.createdAt>best.createdAt) best=p; }
+  }
+  return best ? best.amount : (bill.typicalAmount||0);
+}
+/* opening the app is what generates this month's bills — never a manual step */
+function ensureCurrentPeriodPayments(){
+  var now=new Date(), y=now.getFullYear(), m=now.getMonth(), changed=false;
+  db.bills.forEach(function(bill){
+    if(bill.archived) return;
+    occurrencesInMonth(bill,y,m).forEach(function(oc){
+      var exists=db.payments.some(function(p){ return p.billId===bill.id && p.period===oc.period; });
+      if(!exists){
+        db.payments.push({ id:uid(), billId:bill.id, period:oc.period, amount:lastKnownAmount(bill),
+          paid:false, paidAt:null, dueDate:oc.dueDate, createdAt:new Date().toISOString() });
+        changed=true;
+      }
+    });
+  });
+  if(changed) safeSave();
+}
+function thisMonthPayments(){
+  /* dueDate is always inside the due month, for every cadence — so this one
+     check is correct for all five (a March-due annual bill must NOT sit on
+     Home in August just because its period key is the whole year) */
+  var now=new Date(), pre=now.getFullYear()+'-'+pad2(now.getMonth()+1);
+  return db.payments.filter(function(p){
+    var b=billById(p.billId); if(!b||b.archived) return false;
+    return p.dueDate.slice(0,7)===pre;
+  });
+}
+function unpaidAttention(){
+  var t=todayStr();
+  var list=db.payments.filter(function(p){
+    var b=billById(p.billId); if(!b||b.archived||p.paid) return false;
+    var s=statusFor(p,t); return s==='overdue'||s==='soon';
+  });
+  return list;
+}
+
+/* ---------- rendering ---------- */
+var screen='home', detailBillId=null;
+function infoI(key){ return '<button class="info-i" data-action="info" data-info="'+key+'" aria-label="What is this?">i</button>'; }
+
+function render(){
+  ensureCurrentPeriodPayments();
+  document.body.classList.toggle('expert', !db.settings.beginner);
+  var el=$('#main');
+  if(screen==='home') el.innerHTML=renderHome();
+  else if(screen==='bills') el.innerHTML=renderBills();
+  else if(screen==='detail') el.innerHTML=renderDetail();
+  else if(screen==='settings') el.innerHTML=renderSettings();
+  else if(screen==='support') el.innerHTML=renderSupport();
+  else if(screen==='privacy') el.innerHTML=renderPrivacy();
+  var tabFor={home:'home',bills:'bills',detail:'bills',settings:'settings',support:'settings',privacy:'settings'}[screen];
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.screen===tabFor); });
+  renderBanners();
+}
+
+function paymentRow(p){
+  var b=billById(p.billId), c=b?catById(b.categoryId):null, t=todayStr(), s=statusFor(p,t);
+  var dueTxt;
+  if(s==='paid') dueTxt='Paid '+(p.paidAt?periodDisplay(p.paidAt):'');
+  else{
+    var diff=Math.round((parseYmd(p.dueDate)-parseYmd(t))/86400000);
+    dueTxt = diff<0 ? (Math.abs(diff)+'d overdue') : diff===0 ? 'Due today' : diff===1 ? 'Due tomorrow' : 'Due '+periodDisplay(p.dueDate);
+  }
+  return '<div class="row st-'+s+'">'
+    +'<button class="paycircle" data-action="toggle-paid" data-id="'+p.id+'" aria-label="Mark paid"><span class="ring"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span></button>'
+    +'<div class="main" data-action="open-bill" data-id="'+(b?b.id:'')+'">'
+      +'<div class="name">'+(c?'<span style="margin-right:5px">'+esc(c.icon)+'</span>':'')+esc(b?b.name:'(deleted bill)')+'</div>'
+      +'<div class="sub"><span class="chip '+(b&&b.method==='autopay'?'auto':'')+'">'+(b&&b.method==='autopay'?'Autopay':'I pay this')+'</span>'
+      +'<span class="due '+(s==='overdue'?'overdue':s==='soon'?'soon':'')+'">'+esc(dueTxt)+'</span></div>'
+    +'</div>'
+    +'<button class="amt '+(p.amount>0?'':'unset')+'" data-action="edit-amount" data-id="'+p.id+'">'+(p.amount>0?money(p.amount):'set $')+'</button>'
+  +'</div>';
+}
+
+function renderHome(){
+  var now=new Date();
+  var list=thisMonthPayments();
+  var t=todayStr();
+  var order={overdue:0,soon:1,upcoming:2,paid:3};
+  list.sort(function(a,b){
+    var d=order[statusFor(a,t)]-order[statusFor(b,t)];
+    return d!==0 ? d : (a.dueDate<b.dueDate?-1:1);
+  });
+  var attn=unpaidAttention();
+  var h='';
+  if(attn.length){
+    var od=attn.filter(function(p){return statusFor(p,t)==='overdue';}).length;
+    h+='<div class="attn'+(od?' has-overdue':'')+'"><div style="flex:1">'
+      +(od?('<b>'+od+' bill'+(od>1?'s':'')+' overdue</b>'):'<b>Bills due soon</b>')
+      +'<div style="font-size:13px;color:var(--muted)">'+attn.length+' need'+(attn.length>1?'':'s')+' attention this month</div></div></div>';
+  }
+  h+='<div class="sec-title">'+MONTHS[now.getMonth()]+' '+now.getFullYear()+' '+infoI('home')+'</div>';
+  if(!list.length){
+    h+='<div class="card"><div class="empty"><div class="big">\uD83E\uDDFE</div>'
+      +'<p><b>Nothing due yet.</b></p><p>Add your regular bills once and PaidUp lays out each month for you \u2014 what\u2019s paid, what\u2019s not, and what\u2019s coming.</p>'
+      +'<button class="btn block" data-action="add-bill">Add your first bill</button></div></div>';
+  }else{
+    h+='<div class="card">'+list.map(paymentRow).join('')+'</div>';
+    h+='<button class="btn ghost block" data-action="add-bill">+ Add a bill</button>';
+  }
+  h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+  /* cold-open stamp: Home IS the first screen a fresh visitor sees; version is set into #verFoot on render */
+  return h;
+}
+
+function billLine(b){
+  var c=catById(b.categoryId);
+  var cad=CADENCES.filter(function(x){return x.id===b.cadence;})[0];
+  var when='';
+  if(b.cadence==='monthly') when='day '+b.dueDay;
+  else if(b.cadence==='quarterly') when='day '+b.dueDay+', '+[0,1,2].map(function(i){return MONTHS[(b.dueMonth+i*3)%12].slice(0,3);}).join('/') + '/' + MONTHS[(b.dueMonth+9)%12].slice(0,3);
+  else if(b.cadence==='annual') when=MONTHS[b.dueMonth]+' '+b.dueDay;
+  else if(b.cadence==='weekly') when=WEEKDAYS[b.dueWeekday]+'s';
+  else if(b.cadence==='biweekly') when='from '+periodDisplay(b.anchorDate);
+  return '<div class="row" data-action="open-bill" data-id="'+b.id+'">'
+    +'<div class="cat-emoji">'+esc(c?c.icon:'\uD83D\uDCC1')+'</div>'
+    +'<div class="main"><div class="name">'+esc(b.name)+(b.archived?' <span class="chip">archived</span>':'')+'</div>'
+    +'<div class="sub"><span>'+esc(cad?cad.label:b.cadence)+' \u00B7 '+esc(when)+'</span>'
+    +'<span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'Manual')+'</span></div></div>'
+    +'<svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>'
+  +'</div>';
+}
+function renderBills(){
+  var active=db.bills.filter(function(b){return !b.archived;});
+  var arch=db.bills.filter(function(b){return b.archived;});
+  var h='<div class="sec-title">Your bills '+infoI('bills')+'</div>';
+  if(!db.bills.length){
+    h+='<div class="card"><div class="empty"><div class="big">\uD83D\uDCEC</div><p><b>No bills yet.</b></p><p>Add each recurring bill once \u2014 rent, power, phone, insurance \u2014 and choose how often it comes.</p></div></div>';
+  }else{
+    if(active.length) h+='<div class="card">'+active.map(billLine).join('')+'</div>';
+    if(arch.length) h+='<div class="sec-title">Archived</div><div class="card">'+arch.map(billLine).join('')+'</div>';
+  }
+  h+='<button class="btn block" data-action="add-bill">+ Add a bill</button>';
+  h+='<button class="btn ghost block" data-action="manage-cats">Manage categories</button>';
+  h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+  return h;
+}
+
+function renderDetail(){
+  var b=billById(detailBillId);
+  if(!b){ screen='bills'; return renderBills(); }
+  var c=catById(b.categoryId);
+  var pays=db.payments.filter(function(p){return p.billId===b.id;});
+  pays.sort(function(a,x){ return a.dueDate<x.dueDate?1:-1; });
+  var byYear={};
+  pays.forEach(function(p){ var y=p.period.slice(0,4); (byYear[y]=byYear[y]||[]).push(p); });
+  var years=Object.keys(byYear).sort().reverse();
+  var h='<button class="backlink" data-action="nav" data-screen="bills"><svg class="chev" style="transform:rotate(180deg)" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>All bills</button>';
+  h+='<div class="card"><div class="pad">'
+    +'<h2 style="font-size:19px">'+(c?esc(c.icon)+' ':'')+esc(b.name)+'</h2>'
+    +'<div class="sub" style="margin-top:6px;display:flex;gap:6px"><span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'I pay this')+'</span>'
+    +'<span class="chip">'+esc((CADENCES.filter(function(x){return x.id===b.cadence;})[0]||{}).label||b.cadence)+'</span>'
+    +(b.archived?'<span class="chip">archived</span>':'')+'</div>'
+    +'<div class="btnrow" style="display:flex;gap:10px;margin-top:14px">'
+    +'<button class="btn ghost small" data-action="edit-bill" data-id="'+b.id+'">Edit</button>'
+    +'<button class="btn ghost small" data-action="archive-bill" data-id="'+b.id+'">'+(b.archived?'Unarchive':'Archive')+'</button>'
+    +'<button class="btn ghost small" style="color:var(--danger);border-color:var(--danger)" data-action="delete-bill" data-id="'+b.id+'">Delete</button>'
+    +'</div></div></div>';
+  h+='<div class="sec-title">Payment history '+infoI('history')+'</div>';
+  if(!pays.length) h+='<div class="card"><div class="empty"><p>No payments recorded yet \u2014 they appear here as each due period arrives.</p></div></div>';
+  years.forEach(function(y){
+    var total=byYear[y].reduce(function(s,p){ return s+(p.paid?(p.amount||0):0); },0);
+    h+='<div class="card"><div class="yeartotal"><span>'+y+'</span><span>'+money(total)+' paid</span></div>'
+      +byYear[y].map(function(p){
+        var s=statusFor(p,todayStr());
+        return '<div class="row st-'+s+'">'
+          +'<button class="paycircle" data-action="toggle-paid" data-id="'+p.id+'"><span class="ring"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span></button>'
+          +'<div class="main"><div class="name">'+esc(periodDisplay(p.period))+'</div>'
+          +'<div class="sub"><span class="due">'+(p.paid?('Paid'+(p.paidAt?' '+periodDisplay(p.paidAt):'')):('Due '+esc(periodDisplay(p.dueDate))))+'</span></div></div>'
+          +'<button class="amt '+(p.amount>0?'':'unset')+'" data-action="edit-amount" data-id="'+p.id+'">'+(p.amount>0?money(p.amount):'set $')+'</button>'
+        +'</div>';
+      }).join('')+'</div>';
+  });
+  h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+  return h;
+}
+
+function renderSettings(){
+  var themeLabels={system:'Follow system',light:'Daylight',dark:'Dark'};
+  var h='<div class="sec-title">Settings</div><div class="card linklist">'
+    +'<button data-action="cycle-theme"><span class="grow">Theme</span><span class="val">'+themeLabels[db.settings.theme]+'</span></button>'
+    +'<button data-action="toggle-beginner"><span class="grow">Show (i) help markers '+infoI('beginner')+'</span><span class="val">'+(db.settings.beginner?'On':'Off')+'</span></button>'
+    +'</div>'
+    +'<div class="sec-title">Your data</div><div class="card linklist">'
+    +'<button data-action="nav" data-screen="support"><span class="grow">Save, back up &amp; support EGS</span><svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>'
+    +'<button data-action="nav" data-screen="privacy"><span class="grow">Privacy \u2014 the whole truth</span><svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>'
+    +'</div>'
+    +'<div class="sec-title">About</div><div class="card linklist">'
+    +'<button data-action="share"><span class="grow">Share PaidUp</span><svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>'
+    +'<a><span class="grow">Version</span><span class="val" id="verSet"></span></a>'
+    +'</div>'
+    +'<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 Enlightened Global Solutions \u00B7 \uD83C\uDF41 100% Canadian</div>';
+  return h;
+}
+
+/* EGS Support & Backup — app-specific half; core half copied verbatim from the EGS pattern */
+/* EGS-STD:support -->  EGS-STD:backup */
+function renderSupport(){
+  var last=db.settings.lastBackupAt;
+  var h='<button class="backlink" data-action="nav" data-screen="settings"><svg class="chev" style="transform:rotate(180deg)" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>Settings</button>';
+  h+='<div class="sec-title">Save &amp; back up '+infoI('backup')+'</div><div class="card"><div class="pad prose">'
+    +'<p>Everything you\u2019ve entered lives only on this device. One tap saves it all to a file you own \u2014 keep it in your phone\u2019s files, email it to yourself, or copy it to a drive.</p>'
+    +'<p style="color:var(--muted);font-size:13px">'+(last?('Last backup: '+esc(periodDisplay(last.slice(0,10)))):'Never backed up yet.')+'</p>'
+    +'<button class="btn block" data-action="export">\u2B07\uFE0F Save backup file</button>'
+    +'<button class="btn ghost block" data-action="import">\u2B06\uFE0F Restore from a backup</button>'
+    +'<input type="file" id="importFile" accept="application/json,.json" class="hide">'
+    +'</div></div>';
+  h+=egsSupportCoreHtml();
+  h+='<div class="sec-title">More EGS apps</div><div class="card linklist">'
+    +EGS_APPS.map(function(a){
+      return a.url
+        ? '<a href="'+esc(a.url)+'" target="_blank" rel="noopener"><span class="grow"><b>'+esc(a.name)+'</b><br><span class="val">'+esc(a.line)+'</span></span><svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></a>'
+        : '<a><span class="grow"><b>'+esc(a.name)+'</b><br><span class="val">'+esc(a.line)+' (coming soon)</span></span></a>';
+    }).join('')+'</div>';
+  h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+  return h;
+}
+function egsSupportCoreHtml(){
+  return '<div class="sec-title">Support EGS</div><div class="card"><div class="pad prose">'
+    +'<p><b>PaidUp is free \u2014 all of it, forever.</b> It\u2019s a personal tool, and EGS believes tools like this shouldn\u2019t cost money or harvest your data to exist. If it\u2019s genuinely helped you and you\u2019d like to chip in, thank you \uD83D\uDE4F \u2014 and if not, enjoy it exactly the same.</p>'
+    +'<div class="paytabs">'
+      +'<button class="on" data-action="paytab" data-tab="interac">\uD83C\uDF41 Interac</button>'
+      +'<button data-action="paytab" data-tab="btc">\u20BF Bitcoin</button>'
+      +'<button data-action="paytab" data-tab="card">\uD83D\uDCB3 Card</button>'
+      +'<button data-action="paytab" data-tab="paypal">\uD83C\uDFE6 PayPal</button>'
+      +'<button data-action="paytab" data-tab="wise">\uD83C\uDF0D Wise</button>'
+    +'</div><div class="paybody" id="paybody">'+payTabHtml('interac')+'</div>'
+    +'<p style="margin-top:14px"><button class="btn ghost small" data-action="share">\uD83D\uDCE4 Share PaidUp with someone</button></p>'
+    +'<p style="color:var(--muted);font-size:13px">Wondering where your data goes? Read <a data-action="nav" data-screen="privacy" style="cursor:pointer">Privacy \u2014 the whole truth</a>.</p>'
+    +'</div></div>';
+}
+function payTabHtml(tab){
+  if(tab==='interac') return '<p>Send an Interac e-Transfer to <code>'+esc(PAYMENT_CONFIG.interacEmail)+'</code> with the memo \u201C'+esc(PAYMENT_CONFIG.interacMemo)+'\u201D. \uD83C\uDF41 Canada\u2019s own \u2014 no middleman fees.</p>';
+  if(tab==='btc') return PAYMENT_CONFIG.btc?'<p>Bitcoin address: <code>'+esc(PAYMENT_CONFIG.btc)+'</code></p>':'<p>Bitcoin address coming soon \u2014 Interac works today.</p>';
+  if(tab==='card') return PAYMENT_CONFIG.stripeUrl?'<p><a href="'+esc(PAYMENT_CONFIG.stripeUrl)+'" target="_blank" rel="noopener">Contribute by card (via Stripe)</a></p>':'<p>Card payments coming soon \u2014 Interac works today.</p>';
+  if(tab==='paypal') return PAYMENT_CONFIG.paypalUrl?'<p><a href="'+esc(PAYMENT_CONFIG.paypalUrl)+'" target="_blank" rel="noopener">Contribute via PayPal</a></p>':'<p>PayPal coming soon \u2014 Interac works today.</p>';
+  if(tab==='wise') return PAYMENT_CONFIG.wiseUrl?'<p><a href="'+esc(PAYMENT_CONFIG.wiseUrl)+'" target="_blank" rel="noopener">Contribute via Wise</a></p>':'<p>Wise coming soon \u2014 Interac works today.</p>';
+  return '';
+}
+
+/* EGS-STD:privacy-page */
+function renderPrivacy(){
+  return '<button class="backlink" data-action="nav" data-screen="settings"><svg class="chev" style="transform:rotate(180deg)" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>Settings</button>'
+  +'<div class="sec-title">Privacy \u2014 the whole truth</div><div class="card"><div class="pad prose">'
+  +'<h3>What PaidUp collects about you</h3><p>Nothing. There is no account, no sign-up, no analytics, no tracking pixel, no crash reporter. EGS cannot see your bills, your amounts, or that you exist.</p>'
+  +'<h3>Where your data lives</h3><p>In this browser\u2019s storage, on this device. Your bills and payment history never leave your phone unless <i>you</i> export a backup file \u2014 and that file goes wherever you put it, not to us.</p>'
+  +'<h3>Every time this app touches the internet</h3>'
+  +'<ul><li><b>Opening or updating the app itself.</b> PaidUp is served from GitHub Pages, so when you\u2019re online, your browser fetches the latest version from GitHub\u2019s servers. GitHub sees the standard things any web server sees (your IP address, browser type). Offline, the app runs entirely from its own cache.</li>'
+  +'<li><b>Links you tap.</b> The \u201CMore EGS apps\u201D links and any payment links open in your browser like any other link.</li>'
+  +'<li><b>That\u2019s the whole list.</b> No other request is ever made.</li></ul>'
+  +'<h3>Your control</h3><p>Export everything to a file you own, restore it anywhere, or clear this site\u2019s data in your browser to erase it completely. It\u2019s your data \u2014 genuinely.</p>'
+  +'<h3>How EGS makes money</h3><p>Not from PaidUp \u2014 it\u2019s free, fully, forever. EGS sells one-time unlocks on its trade tools and accepts optional contributions. Never your data, never ads, never a subscription trap. See <a data-action="nav" data-screen="support" style="cursor:pointer">Save, back up &amp; support</a>.</p>'
+  +'</div></div>'
+  +'<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+}
+
+/* ---------- banners: install prompt + backup nudge (never stacked) ---------- */
+/* EGS-STD:install-banner */
+var deferredInstall=null;
+window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); deferredInstall=e; renderBanners(); });
+function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
+function isIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+var persistedOk=null;
+function backupNudgeWanted(){
+  if(!hasRealData(db)) return false;                              /* an empty app never nags */
+  var snooze=+(localStorage.getItem(K_BACKUP_SNOOZE)||0);
+  if(Date.now()<snooze) return false;                             /* dismiss snoozes 7 days */
+  var last=db.settings.lastBackupAt?Date.parse(db.settings.lastBackupAt):0;
+  var stale=!last || (Date.now()-last)>21*86400000;               /* trigger: 21+ days or never */
+  return stale || persistedOk===false;
+}
+function installBannerWanted(){
+  if(isStandalone()) return false;
+  if(localStorage.getItem(K_INSTALL_DISMISS)) return false;
+  return !!deferredInstall || isIOS();
+}
+function renderBanners(){
+  var host=$('#banners'); var h='';
+  if(backupNudgeWanted()){
+    h='<div class="notice" style="position:fixed;left:12px;right:12px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:30;box-shadow:var(--shadow)">'
+      +'<div class="txt"><b>Keep a backup \uD83D\uDCBE</b>Your bills live only on this phone. One tap saves them to a file you own.</div>'
+      +'<div class="actions"><button class="btn small" data-action="export">Back up now</button>'
+      +'<button class="btn ghost small" data-action="snooze-backup">Later</button></div></div>';
+  } else if(installBannerWanted()){
+    var body = deferredInstall
+      ? 'Install it to your home screen \u2014 works fully offline.'
+      : 'On iPhone: tap Share, then \u201CAdd to Home Screen\u201D \u2014 works fully offline.';
+    h='<div class="notice" style="position:fixed;left:12px;right:12px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:30;box-shadow:var(--shadow)">'
+      +'<div class="txt"><b>PaidUp is an app \uD83D\uDCF1</b>'+body+'</div>'
+      +'<div class="actions">'+(deferredInstall?'<button class="btn small" data-action="install">Install</button>':'')
+      +'<button class="btn ghost small" data-action="dismiss-install">Got it</button></div></div>';
+  }
+  host.innerHTML=h;
+}
+
+/* ---------- modals ---------- */
+function openModal(html){ $('#modalHost').innerHTML='<div class="modal-wrap" data-action="modal-bg"><div class="modal">'+html+'</div></div>'; }
+function closeModal(){ $('#modalHost').innerHTML=''; }
+
+function billFormHtml(b){
+  b=b||{};
+  var cad=b.cadence||'monthly';
+  var catOpts=db.categories.map(function(c){ return '<option value="'+c.id+'"'+(c.id===b.categoryId?' selected':'')+'>'+esc(c.icon+' '+c.label)+'</option>'; }).join('');
+  return '<h2>'+(b.id?'Edit bill':'Add a bill')+' '+infoI('addbill')+'</h2>'
+    +'<div class="field"><label>Name</label><input type="text" id="f-name" value="'+esc(b.name||'')+'" placeholder="e.g. Power, Rent, Phone" maxlength="60"></div>'
+    +'<div class="field"><label>Category</label><select id="f-cat">'+catOpts+'</select></div>'
+    +'<div class="field"><label>How it gets paid '+infoI('method')+'</label><div class="seg" id="f-method">'
+      +'<button data-val="manual" class="'+((b.method||'manual')==='manual'?'on':'')+'">I pay it myself</button>'
+      +'<button data-val="autopay" class="'+(b.method==='autopay'?'on':'')+'">Autopay</button></div></div>'
+    +'<div class="field"><label>How often '+infoI('cadence')+'</label><select id="f-cadence">'
+      +CADENCES.map(function(c){ return '<option value="'+c.id+'"'+(c.id===cad?' selected':'')+'>'+c.label+'</option>'; }).join('')+'</select></div>'
+    +'<div id="f-when">'+cadenceFieldsHtml(cad,b)+'</div>'
+    +'<div class="field"><label>Typical amount (optional)</label><input type="number" id="f-amount" inputmode="decimal" step="0.01" min="0" value="'+(b.typicalAmount||'')+'" placeholder="0.00"></div>'
+    +'<div class="btnrow"><button class="btn ghost" data-action="modal-close">Cancel</button>'
+    +'<button class="btn" data-action="save-bill" data-id="'+(b.id||'')+'">Save bill</button></div>';
+}
+function cadenceFieldsHtml(cad,b){
+  b=b||{};
+  var dayOpts=''; for(var d=1;d<=31;d++) dayOpts+='<option value="'+d+'"'+((b.dueDay||1)===d?' selected':'')+'>'+d+'</option>';
+  var monOpts=MONTHS.map(function(mn,i){ return '<option value="'+i+'"'+((b.dueMonth||0)===i?' selected':'')+'>'+mn+'</option>'; }).join('');
+  var wdOpts=WEEKDAYS.map(function(w,i){ return '<option value="'+i+'"'+((b.dueWeekday==null?5:b.dueWeekday)===i?' selected':'')+'>'+w+'</option>'; }).join('');
+  if(cad==='monthly') return '<div class="field"><label>Due on day of month</label><select id="f-day">'+dayOpts+'</select></div>';
+  if(cad==='quarterly') return '<div class="field"><label>Due on day</label><select id="f-day">'+dayOpts+'</select></div>'
+    +'<div class="field"><label>Starting month (repeats every 3)</label><select id="f-month">'+monOpts+'</select></div>';
+  if(cad==='annual') return '<div class="field"><label>Due in month</label><select id="f-month">'+monOpts+'</select></div>'
+    +'<div class="field"><label>Due on day</label><select id="f-day">'+dayOpts+'</select></div>';
+  if(cad==='weekly') return '<div class="field"><label>Due every</label><select id="f-weekday">'+wdOpts+'</select></div>';
+  if(cad==='biweekly') return '<div class="field"><label>Next due date (repeats every 14 days)</label><input type="date" id="f-anchor" value="'+esc(b.anchorDate||todayStr())+'"></div>';
+  return '';
+}
+function readBillForm(existing){
+  var name=$('#f-name').value.trim();
+  if(!name){ alert('Give the bill a name first.'); return null; }
+  var cad=$('#f-cadence').value;
+  var b=existing||{ id:uid(), archived:false, createdAt:new Date().toISOString() };
+  b.name=name;
+  b.categoryId=$('#f-cat').value;
+  b.method=$('#f-method .on').dataset.val;
+  b.cadence=cad;
+  b.typicalAmount=parseFloat($('#f-amount').value)||0;
+  b.dueDay=$('#f-day')?+$('#f-day').value:1;
+  b.dueMonth=$('#f-month')?+$('#f-month').value:0;
+  b.dueWeekday=$('#f-weekday')?+$('#f-weekday').value:null;
+  b.anchorDate=$('#f-anchor')?$('#f-anchor').value:null;
+  if(cad==='biweekly' && !b.anchorDate){ alert('Pick the next due date.'); return null; }
+  b.updatedAt=new Date().toISOString();
+  return b;
+}
+function amountModal(payId,thenPaid){
+  var p=payById(payId); if(!p) return;
+  var b=billById(p.billId);
+  openModal('<h2>Amount \u2014 '+esc(b?b.name:'')+'</h2>'
+    +'<div class="field"><label>'+esc(periodDisplay(p.period))+'</label>'
+    +'<input type="number" id="f-payamt" inputmode="decimal" step="0.01" min="0" value="'+(p.amount||'')+'" placeholder="0.00" autofocus></div>'
+    +'<div class="btnrow"><button class="btn ghost" data-action="modal-close">Cancel</button>'
+    +'<button class="btn" data-action="save-amount" data-id="'+p.id+'"'+(thenPaid?' data-thenpaid="1"':'')+'>'+(thenPaid?'Save \u0026 mark paid':'Save')+'</button></div>');
+}
+function catsModal(){
+  var rows=db.categories.map(function(c,i){
+    return '<div class="row"><div class="cat-emoji">'+esc(c.icon)+'</div><div class="main"><div class="name">'+esc(c.label)+'</div></div>'
+    +'<button class="icon-btn" data-action="cat-up" data-id="'+c.id+'" aria-label="Move up"'+(i===0?' disabled style="opacity:.3"':'')+'><svg viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></svg></button>'
+    +'<button class="icon-btn" data-action="cat-edit" data-id="'+c.id+'" aria-label="Edit"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></button>'
+    +'<button class="icon-btn" data-action="cat-del" data-id="'+c.id+'" aria-label="Delete"><svg viewBox="0 0 24 24" style="stroke:var(--danger)"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg></button>'
+    +'</div>';
+  }).join('');
+  openModal('<h2>Categories '+infoI('cats')+'</h2><div class="card">'+rows+'</div>'
+    +'<button class="btn ghost block" data-action="cat-add">+ Add category</button>'
+    +'<div class="btnrow"><button class="btn" data-action="modal-close">Done</button></div>');
+}
+function catEditModal(id){
+  var c=id?catById(id):null;
+  openModal('<h2>'+(c?'Edit category':'New category')+'</h2>'
+    +'<div class="field"><label>Emoji</label><input type="text" id="f-cicon" value="'+esc(c?c.icon:'\uD83D\uDCC1')+'" maxlength="4" style="width:90px;text-align:center;font-size:22px"></div>'
+    +'<div class="field"><label>Name</label><input type="text" id="f-clabel" value="'+esc(c?c.label:'')+'" maxlength="30"></div>'
+    +'<div class="btnrow"><button class="btn ghost" data-action="manage-cats">Back</button>'
+    +'<button class="btn" data-action="cat-save" data-id="'+(c?c.id:'')+'">Save</button></div>');
+}
+
+/* ---------- info sheet texts ---------- */
+var INFO_TEXTS={
+  home:['This month','Every bill due this month appears here automatically \u2014 just opening the app lays them out. Tap the circle when one\u2019s paid; tap the amount to set or fix what it cost. Red means overdue, amber means due within 5 days.'],
+  bills:['Your bills','This is the master list \u2014 each recurring bill lives here once, and PaidUp generates its due dates every month from this. Tap a bill to see its full history and yearly totals.'],
+  history:['Payment history','Every period this bill has come due, with what you paid. The year header totals what you\u2019ve actually paid, so you can see spending change year over year.'],
+  backup:['Backups','Your data never leaves this device on its own \u2014 which also means only you can back it up. The file is plain JSON named paidup-backup-(date).json; restoring it brings everything back exactly.'],
+  addbill:['Adding a bill','You add each bill once. Every month (or week, or year \u2014 whatever you choose) PaidUp creates that period\u2019s entry by itself, pre-filled with the last amount you paid.'],
+  method:['Autopay vs. manual','\u201CAutopay\u201D means the money leaves your account automatically \u2014 you\u2019re just confirming it happened. \u201CI pay it myself\u201D means PaidUp\u2019s reminders are what keep it from being late.'],
+  cadence:['How often','Most bills are monthly. Some come weekly or every two weeks (payday-timed bills), every 3 months (some utilities), or once a year (insurance, registrations). Each bill can be different.'],
+  cats:['Categories','Groups for your bills \u2014 rename them, change the emoji, reorder, add your own. Deleting a category never deletes its bills; they just show as uncategorized.'],
+  beginner:['Help markers','These little (i) circles explain each part of the app. Once you know your way around, turn them off here \u2014 everything else stays the same.']
+};
+function showInfo(key){
+  var t=INFO_TEXTS[key]; if(!t) return;
+  $('#infoSheet').innerHTML='<div class="modal-wrap" data-action="info-close"><div class="modal"><h2>'+esc(t[0])+'</h2><p>'+esc(t[1])+'</p>'
+    +'<div class="btnrow"><button class="btn" data-action="info-close">Got it</button></div></div></div>';
+}
+
+/* ---------- export / import (EGS-STD:backup) ---------- */
+function doExport(){
+  var payload={ app:APP_NAME, schema:SCHEMA_CURRENT, exportedAt:new Date().toISOString(), data:db };
+  var blob=new Blob([JSON.stringify(payload,null,1)],{type:'application/json'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='paidup-backup-'+todayStr()+'.json';        /* app-named, always */
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); },4000);
+  db.settings.lastBackupAt=new Date().toISOString();
+  safeSave(); render();
+}
+function doImport(file){
+  var r=new FileReader();
+  r.onload=function(){
+    try{
+      var obj=JSON.parse(r.result);
+      if(obj.app!==APP_NAME || !obj.data) throw new Error('That file isn\u2019t a PaidUp backup.');
+      var incoming=migrate(obj.data);
+      if(!confirm('Restore this backup? It REPLACES everything currently in PaidUp on this device.')) return;
+      db=incoming;
+      safeSave({allowShrinkToEmpty:true});
+      screen='home'; render();
+      alert('Backup restored.');
+    }catch(e){ alert('Couldn\u2019t restore: '+(e.message||'unreadable file')); }
+  };
+  r.readAsText(file);
+}
+
+/* ---------- share (payload = app URL only, never user data) ---------- */
+function doShare(){
+  var data={ title:'PaidUp', text:'PaidUp \u2014 know what\u2019s paid, what\u2019s not. Free, private, works offline.', url:APP_URL };
+  if(navigator.share){ navigator.share(data).catch(function(){}); }
+  else if(navigator.clipboard){ navigator.clipboard.writeText(APP_URL).then(function(){ alert('Link copied \u2014 paste it anywhere.'); }); }
+  else{ prompt('Copy the link:', APP_URL); }
+}
+
+/* ---------- theme (EGS-STD:themes) ---------- */
+var mql=window.matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(){
+  var t=db.settings.theme;
+  var resolved = t==='system' ? (mql.matches?'dark':'light') : t;
+  document.documentElement.dataset.theme=resolved;
+}
+mql.addEventListener('change',function(){ if(db.settings.theme==='system') applyTheme(); });
+
+/* ---------- actions (event delegation — zero inline handlers) ---------- */
+document.addEventListener('click',function(ev){
+  var el=ev.target.closest('[data-action]');
+  if(!el) return;
+  var act=el.dataset.action, id=el.dataset.id;
+  if(act==='nav'){ ev.preventDefault(); screen=el.dataset.screen; closeModal(); render(); window.scrollTo(0,0); }
+  else if(act==='share'){ doShare(); }
+  else if(act==='info'){ ev.stopPropagation(); showInfo(el.dataset.info); }
+  else if(act==='info-close'){ if(ev.target===el||el.tagName==='BUTTON') $('#infoSheet').innerHTML=''; }
+  else if(act==='modal-bg'){ if(ev.target===el) closeModal(); }
+  else if(act==='modal-close'){ closeModal(); }
+  else if(act==='add-bill'){ openModal(billFormHtml(null)); }
+  else if(act==='edit-bill'){ openModal(billFormHtml(billById(id))); }
+  else if(act==='save-bill'){
+    var existing=id?billById(id):null;
+    var b=readBillForm(existing); if(!b) return;
+    if(!existing) db.bills.push(b);
+    safeSave(); closeModal(); ensureCurrentPeriodPayments(); render();
+  }
+  else if(act==='open-bill'){ if(id){ detailBillId=id; screen='detail'; render(); window.scrollTo(0,0); } }
+  else if(act==='archive-bill'){
+    var ab=billById(id); if(!ab) return;
+    ab.archived=!ab.archived; ab.updatedAt=new Date().toISOString();
+    safeSave(); render();
+  }
+  else if(act==='delete-bill'){
+    var dbill=billById(id); if(!dbill) return;
+    /* delete requires confirmation — Tier 1, no exceptions */
+    if(!confirm('Delete \u201C'+dbill.name+'\u201D and its entire payment history? This can\u2019t be undone. (Archive instead if you just want it out of the way.)')) return;
+    db.bills=db.bills.filter(function(x){return x.id!==id;});
+    db.payments=db.payments.filter(function(x){return x.billId!==id;});
+    safeSave(); screen='bills'; render();
+  }
+  else if(act==='toggle-paid'){
+    var p=payById(id); if(!p) return;
+    if(!p.paid && !(p.amount>0)){ amountModal(id,true); return; }  /* prompts once if unset, then remembers */
+    p.paid=!p.paid; p.paidAt=p.paid?todayStr():null;
+    safeSave(); render();
+  }
+  else if(act==='edit-amount'){ amountModal(id,false); }
+  else if(act==='save-amount'){
+    var pm=payById(id); if(!pm) return;
+    var v=parseFloat($('#f-payamt').value);
+    if(!(v>=0)){ alert('Enter a number.'); return; }
+    pm.amount=v;
+    if(el.dataset.thenpaid==='1' && !pm.paid){ pm.paid=true; pm.paidAt=todayStr(); }
+    safeSave(); closeModal(); render();
+  }
+  else if(act==='manage-cats'){ catsModal(); }
+  else if(act==='cat-add'){ catEditModal(null); }
+  else if(act==='cat-edit'){ catEditModal(id); }
+  else if(act==='cat-save'){
+    var lbl=$('#f-clabel').value.trim(); if(!lbl){ alert('Give it a name.'); return; }
+    var icn=$('#f-cicon').value.trim()||'\uD83D\uDCC1';
+    var ec=id?catById(id):null;
+    if(ec){ ec.label=lbl; ec.icon=icn; } else db.categories.push({id:uid(),label:lbl,icon:icn});
+    safeSave(); catsModal();
+  }
+  else if(act==='cat-up'){
+    var idx=db.categories.findIndex(function(c){return c.id===id;});
+    if(idx>0){ var tmp=db.categories[idx-1]; db.categories[idx-1]=db.categories[idx]; db.categories[idx]=tmp; safeSave(); catsModal(); }
+  }
+  else if(act==='cat-del'){
+    var dc=catById(id); if(!dc) return;
+    /* deleting a category never deletes bills — they become uncategorized */
+    if(!confirm('Delete the \u201C'+dc.label+'\u201D category? Bills in it are kept and just show as uncategorized.')) return;
+    db.categories=db.categories.filter(function(c){return c.id!==id;});
+    safeSave(); catsModal();
+  }
+  else if(act==='cycle-theme'){
+    var seq=['system','light','dark'];
+    db.settings.theme=seq[(seq.indexOf(db.settings.theme)+1)%3];
+    safeSave(); applyTheme(); render();
+  }
+  else if(act==='toggle-beginner'){ db.settings.beginner=!db.settings.beginner; safeSave(); render(); }
+  else if(act==='export'){ doExport(); }
+  else if(act==='snooze-backup'){ localStorage.setItem(K_BACKUP_SNOOZE, String(Date.now()+7*86400000)); renderBanners(); }
+  else if(act==='import'){
+    if(screen!=='support'){ screen='support'; render(); }
+    var fi=$('#importFile'); if(fi) fi.click();
+  }
+  else if(act==='install'){
+    if(deferredInstall){ deferredInstall.prompt(); deferredInstall.userChoice.then(function(){ deferredInstall=null; renderBanners(); }); }
+  }
+  else if(act==='dismiss-install'){ localStorage.setItem(K_INSTALL_DISMISS,'1'); renderBanners(); }
+  else if(act==='paytab'){
+    document.querySelectorAll('.paytabs button').forEach(function(bn){ bn.classList.toggle('on',bn===el); });
+    $('#paybody').innerHTML=payTabHtml(el.dataset.tab);   /* in-place patch, no page re-render */
+  }
+  else if(act==='refresh-app'){ location.reload(); }
+});
+document.addEventListener('change',function(ev){
+  if(ev.target.id==='importFile' && ev.target.files.length){ doImport(ev.target.files[0]); ev.target.value=''; }
+  if(ev.target.id==='f-cadence'){ $('#f-when').innerHTML=cadenceFieldsHtml(ev.target.value,{}); }
+});
+document.addEventListener('click',function(ev){
+  var seg=ev.target.closest('.seg button');
+  if(seg){ seg.parentElement.querySelectorAll('button').forEach(function(x){x.classList.remove('on');}); seg.classList.add('on'); }
+});
+
+/* ---------- version stamping into the visible page ---------- */
+var _origRender=render;
+render=function(){
+  _origRender();
+  document.querySelectorAll('#verFoot').forEach(function(n){ n.textContent=window.EGS_VERSION; });
+  var vs=$('#verSet'); if(vs) vs.textContent=window.EGS_VERSION;
+};
+
+/* ---------- service worker registration (standard EGS snippet) ---------- */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./service-worker.js').then(function(reg){
+    reg.addEventListener('updatefound',function(){
+      var nw=reg.installing;
+      if(!nw) return;
+      nw.addEventListener('statechange',function(){
+        if(nw.state==='installed' && navigator.serviceWorker.controller){
+          $('#refreshBanner').classList.remove('hide');
+        }
+      });
+    });
+  }).catch(function(){});
+}
+
+/* ---------- init ---------- */
+db=safeLoad();
+safeSave();                                  /* materialize a fresh store on first run */
+applyTheme();
+if(navigator.storage && navigator.storage.persist){
+  navigator.storage.persist().then(function(){ 
+    return navigator.storage.persisted ? navigator.storage.persisted() : null;
+  }).then(function(ok){ persistedOk=(ok===true); renderBanners(); }).catch(function(){});
+}
+render();
+</script>
+</body>
+</html>
