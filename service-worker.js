@@ -9,7 +9,7 @@
 importScripts('./sw_logic.js');
 
 var APP_NAME = 'paidup';
-var VERSION = '2026.08.05-0001';
+var VERSION = '2026.08.06-0002';
 var CACHE = EGS_SW_LOGIC.cacheName(APP_NAME, VERSION);
 
 var CORE = [

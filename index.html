@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.08.05-0001';</script>
+<script>window.EGS_VERSION='2026.08.06-0002';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -644,6 +644,9 @@ function renderPrivacy(){
 /* EGS-STD:install-banner */
 var deferredInstall=null;
 window.addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); deferredInstall=e; renderBanners(); });
+/* The installing tab never becomes standalone, so without this the banner would
+   sit there after a successful install — the one case it must stop asking. */
+window.addEventListener('appinstalled',function(){ deferredInstall=null; localStorage.setItem(K_INSTALL_DISMISS,'1'); renderBanners(); });
 function isStandalone(){ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }
 function isIOS(){ return /iphone|ipad|ipod/i.test(navigator.userAgent); }
 var persistedOk=null;
@@ -655,26 +658,37 @@ function backupNudgeWanted(){
   var stale=!last || (Date.now()-last)>21*86400000;               /* trigger: 21+ days or never */
   return stale || persistedOk===false;
 }
+/* Wanted for ANY browser that isn't already installed and hasn't dismissed -
+   NOT gated on deferredInstall. Chrome fires beforeinstallprompt seconds after
+   load, and gating on it meant Android users saw nothing in that window; when
+   they touched the app first the backup nudge took the slot and the install
+   banner never returned. Manual instructions cover the gap, and the event
+   (which calls renderBanners) hot-swaps in the native Install button. */
 function installBannerWanted(){
   if(isStandalone()) return false;
   if(localStorage.getItem(K_INSTALL_DISMISS)) return false;
-  return !!deferredInstall || isIOS();
+  return true;
 }
 function renderBanners(){
   var host=$('#banners'); var h='';
-  if(backupNudgeWanted()){
-    h='<div class="notice" style="position:fixed;left:12px;right:12px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:30;box-shadow:var(--shadow)">'
-      +'<div class="txt"><b>Keep a backup \uD83D\uDCBE</b>Your bills live only on this phone. One tap saves them to a file you own.</div>'
-      +'<div class="actions"><button class="btn small" data-action="export">Back up now</button>'
-      +'<button class="btn ghost small" data-action="snooze-backup">Later</button></div></div>';
-  } else if(installBannerWanted()){
+  /* Install owns the slot until it is dismissed or the app is installed. It is
+     a one-time ask that dies forever if it loses the race; the backup nudge is
+     recurring and re-offers itself, so it is the one that can afford to wait. */
+  if(installBannerWanted()){
     var body = deferredInstall
       ? 'Install it to your home screen \u2014 works fully offline.'
-      : 'On iPhone: tap Share, then \u201CAdd to Home Screen\u201D \u2014 works fully offline.';
+      : isIOS()
+        ? 'On iPhone: tap Share, then \u201CAdd to Home Screen\u201D \u2014 works fully offline.'
+        : 'On Android: tap the \u22EE menu, then \u201CAdd to Home screen\u201D \u2014 works fully offline.';
     h='<div class="notice" style="position:fixed;left:12px;right:12px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:30;box-shadow:var(--shadow)">'
       +'<div class="txt"><b>PaidUp is an app \uD83D\uDCF1</b>'+body+'</div>'
       +'<div class="actions">'+(deferredInstall?'<button class="btn small" data-action="install">Install</button>':'')
       +'<button class="btn ghost small" data-action="dismiss-install">Got it</button></div></div>';
+  } else if(backupNudgeWanted()){
+    h='<div class="notice" style="position:fixed;left:12px;right:12px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:30;box-shadow:var(--shadow)">'
+      +'<div class="txt"><b>Keep a backup \uD83D\uDCBE</b>Your bills live only on this phone. One tap saves them to a file you own.</div>'
+      +'<div class="actions"><button class="btn small" data-action="export">Back up now</button>'
+      +'<button class="btn ghost small" data-action="snooze-backup">Later</button></div></div>';
   }
   host.innerHTML=h;
 }
