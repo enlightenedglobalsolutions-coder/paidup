@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.08.06-0002';</script>
+<script>window.EGS_VERSION='2026.09.05-1117';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -243,6 +243,7 @@ var SOURCES=[
   {id:'bank', label:'Bank account'},
   {id:'card', label:'Credit card'}
 ];
+function sourceIcon(b){ return b.source==='card'?'💳':'🏦'; }
 var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 var WEEKDAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
@@ -516,7 +517,7 @@ function billLine(b){
     +'<div class="main"><div class="name">'+esc(b.name)+(b.archived?' <span class="chip">archived</span>':'')+'</div>'
     +'<div class="sub"><span>'+esc(cad?cad.label:b.cadence)+' \u00B7 '+esc(when)+'</span>'
     +'<span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'Manual')+'</span>'
-    +'<span class="chip">'+(b.source==='card'?'Credit card':'Bank account')+'</span></div></div>'
+    +'<span class="chip">'+sourceIcon(b)+' '+(b.source==='card'?'Credit card':'Bank account')+'</span></div></div>'
     +'<svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>'
   +'</div>';
 }
@@ -549,7 +550,7 @@ function renderDetail(){
   h+='<div class="card"><div class="pad">'
     +'<h2 style="font-size:19px">'+(c?esc(c.icon)+' ':'')+esc(b.name)+'</h2>'
     +'<div class="sub" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'I pay this')+'</span>'
-    +'<span class="chip">'+(b.source==='card'?'Credit card':'Bank account')+'</span>'
+    +'<span class="chip">'+sourceIcon(b)+' '+(b.source==='card'?'Credit card':'Bank account')+'</span>'
     +'<span class="chip">'+esc((CADENCES.filter(function(x){return x.id===b.cadence;})[0]||{}).label||b.cadence)+'</span>'
     +(b.archived?'<span class="chip">archived</span>':'')+'</div>'
     +'<div class="btnrow" style="display:flex;gap:10px;margin-top:14px">'
