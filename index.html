@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.05-1117';</script>
+<script>window.EGS_VERSION='2026.09.05-1359';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -171,6 +171,7 @@ body.expert .info-i{display:none}
 .backlink{display:inline-flex;align-items:center;gap:6px;margin-bottom:12px;color:var(--muted);font-size:14px;min-height:44px}
 .foot{color:var(--muted);font-size:12px;text-align:center;padding:18px 0 4px}
 .yeartotal{display:flex;justify-content:space-between;padding:10px 14px;background:var(--surface2);font-weight:600;font-size:14px}
+.monthtotal{display:flex;justify-content:space-between;padding:8px 14px;color:var(--muted);font-weight:600;font-size:12.5px;border-bottom:1px solid var(--border)}
 .cat-emoji{font-size:20px;width:28px;text-align:center;flex:none}
 </style>
 </head>
@@ -562,15 +563,30 @@ function renderDetail(){
   if(!pays.length) h+='<div class="card"><div class="empty"><p>No payments recorded yet \u2014 they appear here as each due period arrives.</p></div></div>';
   years.forEach(function(y){
     var total=byYear[y].reduce(function(s,p){ return s+(p.paid?(p.amount||0):0); },0);
+    /* monthly rollup groups by dueDate's month, not period — a weekly or
+       biweekly bill can have several periods land in the same calendar
+       month, and only dueDate reflects that; monthly/quarterly/annual bills
+       get one payment per month regardless, so this is a no-op for them. */
+    var monthOrder=[], byMonth={};
+    byYear[y].forEach(function(p){
+      var mk=p.dueDate.slice(0,7);
+      if(!byMonth[mk]){ byMonth[mk]=[]; monthOrder.push(mk); }
+      byMonth[mk].push(p);
+    });
     h+='<div class="card"><div class="yeartotal"><span>'+y+'</span><span>'+money(total)+' paid</span></div>'
-      +byYear[y].map(function(p){
-        var s=statusFor(p,todayStr());
-        return '<div class="row st-'+s+'">'
-          +'<button class="paycircle" data-action="toggle-paid" data-id="'+p.id+'"><span class="ring"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span></button>'
-          +'<div class="main"><div class="name">'+esc(periodDisplay(p.period))+'</div>'
-          +'<div class="sub"><span class="due">'+(p.paid?('Paid'+(p.paidAt?' '+periodDisplay(p.paidAt):'')):('Due '+esc(periodDisplay(p.dueDate))))+'</span></div></div>'
-          +'<button class="amt '+(p.amount>0?'':'unset')+'" data-action="edit-amount" data-id="'+p.id+'">'+(p.amount>0?money(p.amount):'set $')+'</button>'
-        +'</div>';
+      +monthOrder.map(function(mk){
+        var mPays=byMonth[mk];
+        var mTotal=mPays.reduce(function(s,p){ return s+(p.paid?(p.amount||0):0); },0);
+        return '<div class="monthtotal"><span>'+esc(MONTHS[+mk.slice(5,7)-1])+'</span><span>'+money(mTotal)+' paid</span></div>'
+          +mPays.map(function(p){
+            var s=statusFor(p,todayStr());
+            return '<div class="row st-'+s+'">'
+              +'<button class="paycircle" data-action="toggle-paid" data-id="'+p.id+'"><span class="ring"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span></button>'
+              +'<div class="main"><div class="name">'+esc(periodDisplay(p.period))+'</div>'
+              +'<div class="sub"><span class="due">'+(p.paid?('Paid'+(p.paidAt?' '+periodDisplay(p.paidAt):'')):('Due '+esc(periodDisplay(p.dueDate))))+'</span></div></div>'
+              +'<button class="amt '+(p.amount>0?'':'unset')+'" data-action="edit-amount" data-id="'+p.id+'">'+(p.amount>0?money(p.amount):'set $')+'</button>'
+            +'</div>';
+          }).join('');
       }).join('')+'</div>';
   });
   h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
