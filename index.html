@@ -215,7 +215,7 @@ body.expert .info-i{display:none}
 /* ---------- constants ---------- */
 var APP_NAME='paidup';
 var APP_URL='https://enlightenedglobalsolutions-coder.github.io/paidup/';
-var SCHEMA_CURRENT=1;
+var SCHEMA_CURRENT=2;
 var K_DATA='paidup.data';
 var K_BAK='paidup.data__bak';
 var K_INSTALL_DISMISS='paidup.installPromptDismissed';   /* app-prefixed, always (shared-origin rule) */
@@ -238,6 +238,10 @@ var CADENCES=[
   {id:'monthly',  label:'Monthly'},
   {id:'quarterly',label:'Every 3 months'},
   {id:'annual',   label:'Yearly'}
+];
+var SOURCES=[
+  {id:'bank', label:'Bank account'},
+  {id:'card', label:'Credit card'}
 ];
 var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 var WEEKDAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -344,6 +348,15 @@ function migrate(obj){
     if(!Array.isArray(obj.categories)) obj.categories=[];
     if(!Array.isArray(obj.bills)) obj.bills=[];
     if(!Array.isArray(obj.payments)) obj.payments=[];
+    obj.bills.forEach(function(b){ if(!b.source) b.source='bank'; });   /* v1->v2: payment-source axis, default bank */
+    obj.schema=2;
+  }
+  if(obj.schema===2){
+    if(!obj.settings) obj.settings={theme:'system',beginner:true,lastBackupAt:null};
+    if(!Array.isArray(obj.categories)) obj.categories=[];
+    if(!Array.isArray(obj.bills)) obj.bills=[];
+    if(!Array.isArray(obj.payments)) obj.payments=[];
+    obj.bills.forEach(function(b){ if(!b.source) b.source='bank'; });
     return obj;                                        /* current — no migration needed */
   }
   throw new Error('PaidUp data was saved by a newer version (schema '+obj.schema+'). Update the app before opening this data.');
@@ -502,7 +515,8 @@ function billLine(b){
     +'<div class="cat-emoji">'+esc(c?c.icon:'\uD83D\uDCC1')+'</div>'
     +'<div class="main"><div class="name">'+esc(b.name)+(b.archived?' <span class="chip">archived</span>':'')+'</div>'
     +'<div class="sub"><span>'+esc(cad?cad.label:b.cadence)+' \u00B7 '+esc(when)+'</span>'
-    +'<span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'Manual')+'</span></div></div>'
+    +'<span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'Manual')+'</span>'
+    +'<span class="chip">'+(b.source==='card'?'Credit card':'Bank account')+'</span></div></div>'
     +'<svg class="chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>'
   +'</div>';
 }
@@ -534,7 +548,8 @@ function renderDetail(){
   var h='<button class="backlink" data-action="nav" data-screen="bills"><svg class="chev" style="transform:rotate(180deg)" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>All bills</button>';
   h+='<div class="card"><div class="pad">'
     +'<h2 style="font-size:19px">'+(c?esc(c.icon)+' ':'')+esc(b.name)+'</h2>'
-    +'<div class="sub" style="margin-top:6px;display:flex;gap:6px"><span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'I pay this')+'</span>'
+    +'<div class="sub" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><span class="chip '+(b.method==='autopay'?'auto':'')+'">'+(b.method==='autopay'?'Autopay':'I pay this')+'</span>'
+    +'<span class="chip">'+(b.source==='card'?'Credit card':'Bank account')+'</span>'
     +'<span class="chip">'+esc((CADENCES.filter(function(x){return x.id===b.cadence;})[0]||{}).label||b.cadence)+'</span>'
     +(b.archived?'<span class="chip">archived</span>':'')+'</div>'
     +'<div class="btnrow" style="display:flex;gap:10px;margin-top:14px">'
@@ -707,6 +722,9 @@ function billFormHtml(b){
     +'<div class="field"><label>How it gets paid '+infoI('method')+'</label><div class="seg" id="f-method">'
       +'<button data-val="manual" class="'+((b.method||'manual')==='manual'?'on':'')+'">I pay it myself</button>'
       +'<button data-val="autopay" class="'+(b.method==='autopay'?'on':'')+'">Autopay</button></div></div>'
+    +'<div class="field"><label>Where it comes from '+infoI('source')+'</label><div class="seg" id="f-source">'
+      +'<button data-val="bank" class="'+((b.source||'bank')==='bank'?'on':'')+'">Bank account</button>'
+      +'<button data-val="card" class="'+(b.source==='card'?'on':'')+'">Credit card</button></div></div>'
     +'<div class="field"><label>How often '+infoI('cadence')+'</label><select id="f-cadence">'
       +CADENCES.map(function(c){ return '<option value="'+c.id+'"'+(c.id===cad?' selected':'')+'>'+c.label+'</option>'; }).join('')+'</select></div>'
     +'<div id="f-when">'+cadenceFieldsHtml(cad,b)+'</div>'
@@ -736,6 +754,7 @@ function readBillForm(existing){
   b.name=name;
   b.categoryId=$('#f-cat').value;
   b.method=$('#f-method .on').dataset.val;
+  b.source=$('#f-source .on').dataset.val;
   b.cadence=cad;
   b.typicalAmount=parseFloat($('#f-amount').value)||0;
   b.dueDay=$('#f-day')?+$('#f-day').value:1;
@@ -784,6 +803,7 @@ var INFO_TEXTS={
   backup:['Backups','Your data never leaves this device on its own \u2014 which also means only you can back it up. The file is plain JSON named paidup-backup-(date).json; restoring it brings everything back exactly.'],
   addbill:['Adding a bill','You add each bill once. Every month (or week, or year \u2014 whatever you choose) PaidUp creates that period\u2019s entry by itself, pre-filled with the last amount you paid.'],
   method:['Autopay vs. manual','\u201CAutopay\u201D means the money leaves your account automatically \u2014 you\u2019re just confirming it happened. \u201CI pay it myself\u201D means PaidUp\u2019s reminders are what keep it from being late.'],
+  source:['Bank vs. credit card','A separate question from autopay/manual \u2014 this is about where the money comes from. \u201CBank account\u201D means it comes straight off your bank balance; \u201CCredit card\u201D means it goes on the card first and you pay the card later.'],
   cadence:['How often','Most bills are monthly. Some come weekly or every two weeks (payday-timed bills), every 3 months (some utilities), or once a year (insurance, registrations). Each bill can be different.'],
   cats:['Categories','Groups for your bills \u2014 rename them, change the emoji, reorder, add your own. Deleting a category never deletes its bills; they just show as uncategorized.'],
   beginner:['Help markers','These little (i) circles explain each part of the app. Once you know your way around, turn them off here \u2014 everything else stays the same.']

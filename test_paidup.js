@@ -91,6 +91,33 @@ ok('has a 512px icon', mani.icons.some(function(i){ return i.sizes === '512x512'
 ok('has a maskable icon', mani.icons.some(function(i){ return i.purpose === 'maskable'; }));
 ok('index.html links the manifest', /<link rel="manifest" href="\.\/manifest\.webmanifest">/.test(HTML));
 
+/* ---- schema migration: v1 -> v2 (payment source) ---------------------------
+   migrate() is self-contained (no closures over app state), so its extracted
+   source can be eval'd and actually run against fixture stores — a regex
+   checking for the literal 'bank' string would pass even if the upgrade path
+   stopped setting it on the right object. This is what should fail the next
+   time something touches migrate() and breaks the v1->v2 step. */
+var migrateSrc = /function migrate\(obj\)\{[\s\S]*?\n\}/.exec(HTML);
+ok('migrate() found', !!migrateSrc);
+if(migrateSrc){
+  var migrate = eval('(' + migrateSrc[0] + ')');
+  var v1Store = { schema:1, categories:[], payments:[],
+    settings:{theme:'system',beginner:true,lastBackupAt:null},
+    bills:[{ id:'b1', name:'Rent', method:'manual' }] };            /* no source — legacy shape */
+  var upgraded = migrate(v1Store);
+  ok('v1 store upgrades to schema 2', upgraded.schema === 2, upgraded.schema);
+  ok('v1 bill with no source defaults to bank',
+     upgraded.bills[0].source === 'bank', upgraded.bills[0].source);
+
+  var v2Store = { schema:2, categories:[], payments:[],
+    settings:{theme:'system',beginner:true,lastBackupAt:null},
+    bills:[{ id:'b2', name:'Card bill', method:'autopay', source:'card' }] };
+  var passed = migrate(v2Store);
+  ok('v2 store stays at schema 2', passed.schema === 2, passed.schema);
+  ok('v2 bill with an existing source passes through untouched',
+     passed.bills[0].source === 'card', passed.bills[0].source);
+}
+
 /* ---- install banner ------------------------------------------------------- */
 ok('listens for beforeinstallprompt', /addEventListener\('beforeinstallprompt'/.test(HTML));
 ok("suppresses Chrome's own UI with preventDefault", /e\.preventDefault\(\);/.test(HTML));
