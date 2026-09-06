@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.05-1359';</script>
+<script>window.EGS_VERSION='2026.09.06-1054 (a28968c)';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -146,7 +146,7 @@ main{padding:12px 14px 96px;max-width:640px;margin:0 auto}
 
 /* info / beginner mode */
 /* EGS-STD:infomode */
-.info-i{width:26px;height:26px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);font-size:12px;font-style:italic;font-family:Georgia,serif;vertical-align:middle}
+.info-i{width:26px;height:26px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);font-size:12px;font-style:italic;font-family:Georgia,serif;vertical-align:middle;cursor:pointer}
 body.expert .info-i{display:none}
 #infoSheet .modal p{font-size:14.5px;line-height:1.55;color:var(--text)}
 
@@ -437,7 +437,13 @@ function unpaidAttention(){
 
 /* ---------- rendering ---------- */
 var screen='home', detailBillId=null;
-function infoI(key){ return '<button class="info-i" data-action="info" data-info="'+key+'" aria-label="What is this?">i</button>'; }
+/* span, not button: infoI() is placed inside other interactive elements
+   (e.g. the Settings toggle-beginner row is itself a <button>) — a nested
+   <button> forces the HTML parser to close the outer one early, silently
+   splitting the row's DOM and losing .info-i's fixed sizing to the broader
+   .linklist button selector. role="button" keeps it announced/clickable;
+   the click delegation below matches on [data-action], not tag name. */
+function infoI(key){ return '<span class="info-i" role="button" tabindex="0" data-action="info" data-info="'+key+'" aria-label="What is this?">i</span>'; }
 
 function render(){
   ensureCurrentPeriodPayments();
