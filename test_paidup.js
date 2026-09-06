@@ -180,11 +180,14 @@ ok('dismiss snoozes 7 days', /K_BACKUP_SNOOZE, String\(Date\.now\(\)\+7\*8640000
 ok('backup key is paidup-prefixed', /K_BACKUP_SNOOZE='paidup\.backupNudgeSnoozeUntil'/.test(HTML));
 
 /* ---- version stamps: index.html and the SW must agree --------------------- */
-var vHtml = /window\.EGS_VERSION='(\d{4}\.\d{2}\.\d{2}-\d{4})';/.exec(HTML);
+/* window.EGS_VERSION now stamps as 'DATE (shortsha)' (egs-deploy.sh commit
+   9e802a2) while service-worker.js's VERSION stays a bare date — so this
+   only compares the date portion, not the full string. */
+var vHtml = /window\.EGS_VERSION='(\d{4}\.\d{2}\.\d{2}-\d{4})(?: \([0-9a-f]+\))?';/.exec(HTML);
 var vSw   = /var VERSION = '(\d{4}\.\d{2}\.\d{2}-\d{4})';/.exec(SW);
 ok('index.html carries a deploy-stamped version', !!vHtml);
 ok('service-worker.js carries a deploy-stamped version', !!vSw);
-ok('the two stamps match', !!vHtml && !!vSw && vHtml[1] === vSw[1],
+ok('the two stamps\' dates match', !!vHtml && !!vSw && vHtml[1] === vSw[1],
    (vHtml ? vHtml[1] : '?') + ' vs ' + (vSw ? vSw[1] : '?'));
 ok('a visible footer stamp is rendered', /verFoot/.test(HTML));
 
