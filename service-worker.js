@@ -9,7 +9,7 @@
 importScripts('./sw_logic.js');
 
 var APP_NAME = 'paidup';
-var VERSION = '2026.09.06-1054';
+var VERSION = '2026.09.07-1102';
 var CACHE = EGS_SW_LOGIC.cacheName(APP_NAME, VERSION);
 
 var CORE = [
@@ -42,19 +42,19 @@ self.addEventListener('activate', function(e){
 /* Network-first with a hard timeout: fetch races NETWORK_TIMEOUT_MS; whichever
    loses is genuinely cancelled (AbortController), and cache serves the answer.
    True offline rejects instantly, so this only ever costs time on
-   connected-but-dead networks — exactly the case it exists for. */
+   connected-but-dead networks — exactly the case it exists for. The race
+   itself is EGS_SW_LOGIC.raceAbort (tested in test_sw_logic.js); this
+   function just wires it to fetch/caches, which node can't do. */
 function networkFirstWithTimeout(req){
-  var ctrl = new AbortController();
-  var timer = setTimeout(function(){ ctrl.abort(); }, EGS_SW_LOGIC.NETWORK_TIMEOUT_MS);
-  return fetch(req, { signal: ctrl.signal }).then(function(res){
-    clearTimeout(timer);
-    if(res && res.ok){
-      var copy = res.clone();
-      caches.open(CACHE).then(function(c){ c.put(req, copy); });
-    }
-    return res;
-  }).catch(function(){
-    clearTimeout(timer);
+  return EGS_SW_LOGIC.raceAbort(function(signal){
+    return fetch(req, { signal: signal }).then(function(res){
+      if(res && res.ok){
+        var copy = res.clone();
+        caches.open(CACHE).then(function(c){ c.put(req, copy); });
+      }
+      return res;
+    });
+  }, EGS_SW_LOGIC.NETWORK_TIMEOUT_MS, function(){
     return caches.match(req).then(function(hit){
       return hit || caches.match('./index.html');
     });
