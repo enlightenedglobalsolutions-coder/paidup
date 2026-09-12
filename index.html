@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.07-1102 (9db29ad)';</script>
+<script>window.EGS_VERSION='2026.09.12-1011 (29ee192)';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -173,6 +173,7 @@ body.expert .info-i{display:none}
 .yeartotal{display:flex;justify-content:space-between;padding:10px 14px;background:var(--surface2);font-weight:600;font-size:14px}
 .monthtotal{display:flex;justify-content:space-between;padding:8px 14px;color:var(--muted);font-weight:600;font-size:12.5px;border-bottom:1px solid var(--border)}
 .cat-emoji{font-size:20px;width:28px;text-align:center;flex:none}
+.row.hist-sub{padding-left:30px;background:var(--surface2)}
 </style>
 </head>
 <body>
@@ -193,6 +194,9 @@ body.expert .info-i{display:none}
   </button>
   <button class="tab" data-action="nav" data-screen="bills">
     <svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Bills
+  </button>
+  <button class="tab" data-action="nav" data-screen="history">
+    <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l4 2"/></svg>History
   </button>
   <button class="tab" data-action="nav" data-screen="settings">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8"/></svg>Settings
@@ -436,7 +440,7 @@ function unpaidAttention(){
 }
 
 /* ---------- rendering ---------- */
-var screen='home', detailBillId=null;
+var screen='home', detailBillId=null, openHistoryMonths={};
 /* span, not button: infoI() is placed inside other interactive elements
    (e.g. the Settings toggle-beginner row is itself a <button>) — a nested
    <button> forces the HTML parser to close the outer one early, silently
@@ -452,10 +456,11 @@ function render(){
   if(screen==='home') el.innerHTML=renderHome();
   else if(screen==='bills') el.innerHTML=renderBills();
   else if(screen==='detail') el.innerHTML=renderDetail();
+  else if(screen==='history') el.innerHTML=renderHistory();
   else if(screen==='settings') el.innerHTML=renderSettings();
   else if(screen==='support') el.innerHTML=renderSupport();
   else if(screen==='privacy') el.innerHTML=renderPrivacy();
-  var tabFor={home:'home',bills:'bills',detail:'bills',settings:'settings',support:'settings',privacy:'settings'}[screen];
+  var tabFor={home:'home',bills:'bills',detail:'bills',history:'history',settings:'settings',support:'settings',privacy:'settings'}[screen];
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.screen===tabFor); });
   renderBanners();
 }
@@ -595,6 +600,59 @@ function renderDetail(){
           }).join('');
       }).join('')+'</div>';
   });
+  h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+  return h;
+}
+
+/* Portfolio-level spend history — every calendar month, across every bill
+   (archived included; deleted bills' payments are already removed at delete
+   time), newest first. Grouped by dueDate's month so weekly/biweekly periods
+   land in the month they actually fell due, same rule renderDetail uses for
+   its per-bill monthly rollup. Only paid amounts count, so totals reconcile
+   with the per-bill totals shown in bill detail. */
+function historyByMonth(){
+  var byMonth={};
+  db.payments.forEach(function(p){
+    if(!p.paid) return;
+    var b=billById(p.billId); if(!b) return;   /* deleted bill — payments already gone, but be defensive */
+    var mk=p.dueDate.slice(0,7);
+    (byMonth[mk]=byMonth[mk]||[]).push(p);
+  });
+  return byMonth;
+}
+function renderHistory(){
+  var byMonth=historyByMonth();
+  var months=Object.keys(byMonth).sort().reverse();
+  var h='<div class="sec-title">Spend history '+infoI('spendhistory')+'</div>';
+  if(!months.length){
+    h+='<div class="card"><div class="empty"><div class="big">\uD83D\uDCC5</div>'
+      +'<p><b>No history yet.</b></p><p>Once you start marking bills paid, each month\u2019s total shows up here \u2014 newest first.</p></div></div>';
+    h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
+    return h;
+  }
+  h+='<div class="card">'+months.map(function(mk){
+    var pays=byMonth[mk].slice().sort(function(a,x){ return a.dueDate<x.dueDate?-1:1; });
+    var total=pays.reduce(function(s,p){ return s+(p.amount||0); },0);
+    var open=!!openHistoryMonths[mk];
+    var label=MONTHS[+mk.slice(5,7)-1]+' '+mk.slice(0,4);
+    var head='<div class="row" data-action="toggle-history-month" data-month="'+mk+'">'
+      +'<div class="main"><div class="name">'+esc(label)+'</div>'
+      +'<div class="sub">'+pays.length+' payment'+(pays.length===1?'':'s')+'</div></div>'
+      +'<div class="amt" style="pointer-events:none">'+money(total)+'</div>'
+      +'<svg class="chev" style="transform:rotate('+(open?90:0)+'deg)" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>'
+    +'</div>';
+    if(!open) return head;
+    var rows=pays.map(function(p){
+      var b=billById(p.billId), c=b?catById(b.categoryId):null;
+      return '<div class="row hist-sub" data-action="open-bill" data-id="'+b.id+'">'
+        +'<div class="cat-emoji">'+esc(c?c.icon:'\uD83D\uDCC1')+'</div>'
+        +'<div class="main"><div class="name">'+esc(b.name)+(b.archived?' <span class="chip">archived</span>':'')+'</div>'
+        +'<div class="sub"><span>'+esc(periodDisplay(p.dueDate))+'</span></div></div>'
+        +'<div class="amt" style="pointer-events:none">'+money(p.amount)+'</div>'
+      +'</div>';
+    }).join('');
+    return head+rows;
+  }).join('')+'</div>';
   h+='<div class="foot">PaidUp \u00B7 v<span id="verFoot"></span> \u00B7 EGS</div>';
   return h;
 }
@@ -823,6 +881,7 @@ var INFO_TEXTS={
   home:['This month','Every bill due this month appears here automatically \u2014 just opening the app lays them out. Tap the circle when one\u2019s paid; tap the amount to set or fix what it cost. Red means overdue, amber means due within 5 days.'],
   bills:['Your bills','This is the master list \u2014 each recurring bill lives here once, and PaidUp generates its due dates every month from this. Tap a bill to see its full history and yearly totals.'],
   history:['Payment history','Every period this bill has come due, with what you paid. The year header totals what you\u2019ve actually paid, so you can see spending change year over year.'],
+  spendhistory:['Spend history','Every month you\u2019ve had bills paid, across all of them \u2014 archived bills included, since that\u2019s still real money spent. Tap a month to see which bills made it up.'],
   backup:['Backups','Your data never leaves this device on its own \u2014 which also means only you can back it up. The file is plain JSON named paidup-backup-(date).json; restoring it brings everything back exactly.'],
   addbill:['Adding a bill','You add each bill once. Every month (or week, or year \u2014 whatever you choose) PaidUp creates that period\u2019s entry by itself, pre-filled with the last amount you paid.'],
   method:['Autopay vs. manual','\u201CAutopay\u201D means the money leaves your account automatically \u2014 you\u2019re just confirming it happened. \u201CI pay it myself\u201D means PaidUp\u2019s reminders are what keep it from being late.'],
@@ -903,6 +962,11 @@ document.addEventListener('click',function(ev){
     safeSave(); closeModal(); ensureCurrentPeriodPayments(); render();
   }
   else if(act==='open-bill'){ if(id){ detailBillId=id; screen='detail'; render(); window.scrollTo(0,0); } }
+  else if(act==='toggle-history-month'){
+    var mk=el.dataset.month;
+    openHistoryMonths[mk]=!openHistoryMonths[mk];
+    render();
+  }
   else if(act==='archive-bill'){
     var ab=billById(id); if(!ab) return;
     ab.archived=!ab.archived; ab.updatedAt=new Date().toISOString();
