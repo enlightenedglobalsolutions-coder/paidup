@@ -118,6 +118,124 @@ if(migrateSrc){
      passed.bills[0].source === 'card', passed.bills[0].source);
 }
 
+/* ---- cadence logic: occurrencesInMonth / statusFor / periodDisplay --------
+   Found 2026-09-12: the "EGS PURE CADENCE LOGIC" block's own header comment
+   claimed it was "behavior-tested (test_paidup.js) against real dates for
+   all five cadences" — untrue until this section existed. Only migrate() had
+   a real test; this block had none.
+   Same extraction-and-eval technique as migrate() above: the block is
+   self-contained day math with one outside dependency (MONTHS, a var
+   declared just above it that periodDisplay reads), so both are extracted
+   from the live source and actually run, not pattern-matched.
+   Cases below are picked for where a wrong answer would be invisible rather
+   than loud: day-31 clamping into February across a leap-year line, a
+   quarterly anchor whose quarter crosses a year boundary, annual Feb-29
+   clamping, a 5-occurrence weekly month, biweekly stepping across a DST
+   transition (calendar-day arithmetic must not drift an hour into the wrong
+   day), and statusFor's soon/upcoming boundary and the overdue check across
+   a year line. Every date fact asserted below (weekdays, days-per-month,
+   2026 DST transition dates) was independently verified against plain
+   Date() output before being hardcoded — see the thread for the check. */
+var CADENCE_START = '/* === EGS PURE CADENCE LOGIC START ===';
+var CADENCE_END = '/* === EGS PURE CADENCE LOGIC END ===';
+var csi = HTML.indexOf(CADENCE_START), cei = HTML.indexOf(CADENCE_END);
+ok('cadence logic block markers found', csi !== -1 && cei !== -1 && csi < cei);
+var monthsSrc = /var MONTHS=\[([\s\S]*?)\];/.exec(HTML);
+ok('MONTHS array found (periodDisplay reads it)', !!monthsSrc);
+var CAD = null;
+if(csi !== -1 && cei !== -1 && monthsSrc){
+  var afterHeader = HTML.indexOf('*/', csi) + 2;
+  var cadenceSrc = HTML.slice(afterHeader, cei);
+  try{
+    var buildCadence = new Function('MONTHS', cadenceSrc
+      + ';return {occurrencesInMonth:occurrencesInMonth, statusFor:statusFor, '
+      + 'periodDisplay:periodDisplay, daysInMonth:daysInMonth, clampDay:clampDay};');
+    CAD = buildCadence(eval('[' + monthsSrc[1] + ']'));
+  }catch(e){ CAD = null; }
+}
+ok('cadence functions extracted and ran without throwing', !!CAD);
+
+if(CAD){
+  /* -- day-31 clamping into February, leap and non-leap -- */
+  ok('daysInMonth: Feb 2026 (non-leap) has 28 days', CAD.daysInMonth(2026,1) === 28, CAD.daysInMonth(2026,1));
+  ok('daysInMonth: Feb 2024 (leap) has 29 days', CAD.daysInMonth(2024,1) === 29, CAD.daysInMonth(2024,1));
+  ok('clampDay: day 31 clamps to 28 in Feb 2026', CAD.clampDay(2026,1,31) === 28, CAD.clampDay(2026,1,31));
+  ok('clampDay: day 31 clamps to 29 in Feb 2024 (leap)', CAD.clampDay(2024,1,31) === 29, CAD.clampDay(2024,1,31));
+
+  var monthlyFeb26 = CAD.occurrencesInMonth({ cadence:'monthly', dueDay:31 }, 2026, 1);
+  ok('monthly dueDay 31 clamps to Feb 28 in a non-leap year',
+     monthlyFeb26.length === 1 && monthlyFeb26[0].dueDate === '2026-02-28', JSON.stringify(monthlyFeb26));
+  var monthlyFeb24 = CAD.occurrencesInMonth({ cadence:'monthly', dueDay:31 }, 2024, 1);
+  ok('monthly dueDay 31 clamps to Feb 29 in a leap year',
+     monthlyFeb24.length === 1 && monthlyFeb24[0].dueDate === '2024-02-29', JSON.stringify(monthlyFeb24));
+
+  /* -- quarterly anchor whose quarter crosses a year boundary --
+     Anchor month = November (index 10) -> quarters fall Nov/Feb/May/Aug. */
+  var novAnchor = { cadence:'quarterly', dueMonth:10, dueDay:15 };
+  var qJan = CAD.occurrencesInMonth(novAnchor, 2027, 0);
+  ok('quarterly Nov-anchor does NOT fire in January (year-boundary miss)',
+     qJan.length === 0, JSON.stringify(qJan));
+  var qFeb = CAD.occurrencesInMonth(novAnchor, 2027, 1);
+  ok('quarterly Nov-anchor fires in February of the following year',
+     qFeb.length === 1 && qFeb[0].dueDate === '2027-02-15', JSON.stringify(qFeb));
+  ok('that February period is labelled by calendar quarter (Q1), not anchor-relative',
+     qFeb.length === 1 && qFeb[0].period === '2027-Q1', qFeb[0] && qFeb[0].period);
+  var qNov = CAD.occurrencesInMonth(novAnchor, 2026, 10);
+  ok('quarterly Nov-anchor fires in November itself',
+     qNov.length === 1 && qNov[0].dueDate === '2026-11-15', JSON.stringify(qNov));
+
+  /* -- annual clamping: Feb 29 due date -- */
+  var annFeb26 = CAD.occurrencesInMonth({ cadence:'annual', dueMonth:1, dueDay:29 }, 2026, 1);
+  ok('annual Feb 29 clamps to the 28th in a non-leap year',
+     annFeb26.length === 1 && annFeb26[0].dueDate === '2026-02-28', JSON.stringify(annFeb26));
+  var annFeb24 = CAD.occurrencesInMonth({ cadence:'annual', dueMonth:1, dueDay:29 }, 2024, 1);
+  ok('annual Feb 29 lands on the 29th in a leap year',
+     annFeb24.length === 1 && annFeb24[0].dueDate === '2024-02-29', JSON.stringify(annFeb24));
+  var annOtherMonth = CAD.occurrencesInMonth({ cadence:'annual', dueMonth:1, dueDay:29 }, 2026, 2);
+  ok('annual bill does not fire outside its one due month',
+     annOtherMonth.length === 0, JSON.stringify(annOtherMonth));
+
+  /* -- weekly month with five occurrences (August 2026 has 5 Mondays) -- */
+  var fiveMondays = CAD.occurrencesInMonth({ cadence:'weekly', dueWeekday:1 }, 2026, 7);
+  var expectedMondays = ['2026-08-03','2026-08-10','2026-08-17','2026-08-24','2026-08-31'];
+  ok('weekly bill produces all 5 Mondays in August 2026',
+     JSON.stringify(fiveMondays.map(function(o){ return o.dueDate; })) === JSON.stringify(expectedMondays),
+     JSON.stringify(fiveMondays));
+  ok('weekly period key equals its own dueDate (one payment record per date)',
+     fiveMondays.length === 5 && fiveMondays.every(function(o){ return o.period === o.dueDate; }));
+
+  /* -- biweekly across a DST change --
+     2026 North American DST: spring forward Mar 8, fall back Nov 1.
+     occurrencesInMonth builds dates via Date(y,m,d+14k) — calendar-day
+     arithmetic, not epoch-ms — so it must not drift a day either way. */
+  var springBiweekly = CAD.occurrencesInMonth({ cadence:'biweekly', anchorDate:'2026-02-23' }, 2026, 2);
+  ok('biweekly stays on Monday across the spring-forward DST change',
+     JSON.stringify(springBiweekly.map(function(o){ return o.dueDate; })) === JSON.stringify(['2026-03-09','2026-03-23']),
+     JSON.stringify(springBiweekly));
+  var fallBiweekly = CAD.occurrencesInMonth({ cadence:'biweekly', anchorDate:'2026-10-19' }, 2026, 10);
+  ok('biweekly stays on Monday across the fall-back DST change',
+     JSON.stringify(fallBiweekly.map(function(o){ return o.dueDate; })) === JSON.stringify(['2026-11-02','2026-11-16','2026-11-30']),
+     JSON.stringify(fallBiweekly));
+
+  /* -- statusFor boundaries at the year line -- */
+  ok('statusFor: exactly 5 days out is "soon" (inclusive boundary)',
+     CAD.statusFor({ paid:false, dueDate:'2027-01-05' }, '2026-12-31') === 'soon');
+  ok('statusFor: exactly 6 days out is "upcoming", crossing the new year',
+     CAD.statusFor({ paid:false, dueDate:'2027-01-06' }, '2026-12-31') === 'upcoming');
+  ok('statusFor: a date from last year reads overdue against a new-year today',
+     CAD.statusFor({ paid:false, dueDate:'2026-12-30' }, '2027-01-01') === 'overdue');
+  ok('statusFor: paid wins regardless of date',
+     CAD.statusFor({ paid:true, dueDate:'2020-01-01' }, '2027-01-01') === 'paid');
+
+  /* -- periodDisplay: every period-key shape occurrencesInMonth can produce,
+     including the year-crossing quarter label exercised above -- */
+  ok('periodDisplay: monthly key (YYYY-MM)', CAD.periodDisplay('2027-02') === 'February 2027', CAD.periodDisplay('2027-02'));
+  ok('periodDisplay: quarterly key (YYYY-Qn), same one qFeb produced',
+     CAD.periodDisplay('2027-Q1') === 'Q1 2027', CAD.periodDisplay('2027-Q1'));
+  ok('periodDisplay: annual key (YYYY)', CAD.periodDisplay('2027') === '2027', CAD.periodDisplay('2027'));
+  ok('periodDisplay: dated key (YYYY-MM-DD)', CAD.periodDisplay('2026-08-31') === 'Aug 31, 2026', CAD.periodDisplay('2026-08-31'));
+}
+
 /* ---- install banner ------------------------------------------------------- */
 ok('listens for beforeinstallprompt', /addEventListener\('beforeinstallprompt'/.test(HTML));
 ok("suppresses Chrome's own UI with preventDefault", /e\.preventDefault\(\);/.test(HTML));

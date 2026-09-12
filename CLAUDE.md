@@ -64,12 +64,11 @@ accounts, no sign-up, no analytics.
   `data-action` — zero inline `onclick` (test-enforced, see Tests).
 - Pure/tested block, lines 262–325, marked `EGS PURE CADENCE LOGIC`:
   `occurrencesInMonth()`, `statusFor()`, `periodDisplay()`, and date helpers,
-  covering all five cadences. **The in-code comment claims this is
+  covering all five cadences. The in-code comment claims this is
   "behavior-tested (test_paidup.js) against real dates for all five
-  cadences" — verified 2026-09-12 that this is false.** `test_paidup.js` has
-  zero references to `occurrencesInMonth` or the word "cadence." Only
-  `migrate()` gets the extract-and-eval-against-fixtures treatment (see
-  Tests). Don't trust the comment; see Gotchas.
+  cadences" — false as of 2026-09-12, true again as of the same day: the
+  whole block now gets the same extract-and-eval treatment `migrate()` gets
+  (see Tests), so the comment no longer needed correcting.
 - Spend History (`e5012b2`, `historyByMonth()`): rolls up every **paid**
   payment across every bill (archived included, deleted excluded — a
   deleted bill's payments are removed at delete time) by the month its
@@ -106,7 +105,7 @@ accounts, no sign-up, no analytics.
 
 Run from `apps/paidup/`:
 ```
-node test_paidup.js     # 72/72 passing as of 2026-09-12
+node test_paidup.js     # 100/100 passing as of 2026-09-12
 node test_sw_logic.js   # 26/26 passing as of 2026-09-12
 ```
 - `test_paidup.js` (no deps, reads `index.html`/`service-worker.js`/
@@ -121,6 +120,23 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-12
   - `migrate()` is extracted from `index.html` by regex and actually
     **eval'd and run** against v1 and v2 fixture stores — this is real
     behavioral testing, not a string match.
+  - The whole `EGS PURE CADENCE LOGIC` block (`occurrencesInMonth()`,
+    `statusFor()`, `periodDisplay()`, and the date helpers) gets the same
+    treatment: extracted between its `START`/`END` markers plus the
+    separate `MONTHS` array it reads, run via `new Function(...)`, then
+    exercised against real calendar facts (verified independently against
+    plain `Date()` output, not guessed) — day-31 clamping into February
+    across a leap-year line, a quarterly anchor whose quarter crosses a
+    year boundary (and is labelled by calendar quarter, not anchor-relative
+    — `2027-Q1` for a Nov-anchored bill's February occurrence), annual
+    Feb-29 clamping, a 5-Monday month, biweekly across both 2026 DST
+    transitions (only the fall-back direction actually shifts a date if the
+    arithmetic regresses to epoch-ms — see below), and `statusFor`'s
+    soon/upcoming boundary plus its overdue check across a year line. Each
+    of these was proven to fail for the right reason by breaking the
+    corresponding line in `index.html`, confirming the expected test (and
+    only that test) failed, then reverting — same proof discipline as
+    `raceAbort`'s suite.
   - Install-banner and backup-nudge logic (`installBannerWanted`,
     `backupNudgeWanted`, `renderBanners`) are extracted the same way but
     only **pattern-matched** against their source — not run.
@@ -132,19 +148,20 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-12
   functions (`cacheName`, `isOwnOldCache`, `raceAbort`, `shouldHandle`,
   `isNavigationRequest`, `NETWORK_TIMEOUT_MS`).
 - **Not covered by anything:**
-  - The cadence/date-math block (`occurrencesInMonth`, `statusFor`,
-    `periodDisplay`) — see Structure and Gotchas.
   - `historyByMonth()` / `renderHistory()` (Spend History).
   - The backfill flow (`backfillModal`, `save-backfill` action).
 
 ## Gotchas
 
-- The `EGS PURE CADENCE LOGIC` header comment (index.html:262) overclaims
-  test coverage for the cadence math — see Structure/Tests. If you change
-  `occurrencesInMonth()` or the other date helpers, there is currently
-  **no regression test** that would catch a mistake; verify by hand against
-  real dates for all five cadences before shipping, and consider adding the
-  eval-and-run test the comment already claims exists.
+- Biweekly's DST safety (`occurrencesInMonth`'s `Date(y,m,d+14*k)` calendar
+  arithmetic) is asymmetric if someone regresses it to epoch-ms math: a
+  spring-forward (23-hour day) overshoot lands at 1am the *same* calendar
+  day, so it still reads correctly; a fall-back (25-hour day) undershoot
+  lands at 11pm the *previous* day, which does shift the date. The
+  fall-back test catches that regression; the spring-forward test stays as
+  a guard against other arithmetic mistakes even though it wouldn't catch
+  that specific one. Don't read "the spring test still passes" as "the
+  mutation didn't break anything."
 - `render()` has a side effect (`ensureCurrentPeriodPayments()` can write to
   `localStorage`) — it's not a pure view function, so don't assume calling
   it repeatedly is free.
