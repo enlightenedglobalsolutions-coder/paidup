@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.12-1011 (29ee192)';</script>
+<script>window.EGS_VERSION='2026.09.12-1048 (e5012b2)';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -571,6 +571,7 @@ function renderDetail(){
     +'<button class="btn ghost small" style="color:var(--danger);border-color:var(--danger)" data-action="delete-bill" data-id="'+b.id+'">Delete</button>'
     +'</div></div></div>';
   h+='<div class="sec-title">Payment history '+infoI('history')+'</div>';
+  h+='<button class="btn ghost block" data-action="backfill-payment" data-id="'+b.id+'">+ Add a past payment</button>';
   if(!pays.length) h+='<div class="card"><div class="empty"><p>No payments recorded yet \u2014 they appear here as each due period arrives.</p></div></div>';
   years.forEach(function(y){
     var total=byYear[y].reduce(function(s,p){ return s+(p.paid?(p.amount||0):0); },0);
@@ -855,6 +856,39 @@ function amountModal(payId,thenPaid){
     +'<div class="btnrow"><button class="btn ghost" data-action="modal-close">Cancel</button>'
     +'<button class="btn" data-action="save-amount" data-id="'+p.id+'"'+(thenPaid?' data-thenpaid="1"':'')+'>'+(thenPaid?'Save \u0026 mark paid':'Save')+'</button></div>');
 }
+
+/* Back-filling past payments (EGS-STD:backfill) \u2014 for a period that predates
+   the bill being added, so ensureCurrentPeriodPayments never created a row
+   for it. occurrencesInMonth is the same pure generator the auto-create path
+   uses, so a back-filled dueDate always matches what the cadence would have
+   produced \u2014 never hand-built. */
+function backfillOccurrences(bill,monthVal){
+  if(!monthVal) return [];
+  var parts=monthVal.split('-'); var y=+parts[0], m=+parts[1]-1;
+  var existing={};
+  db.payments.forEach(function(p){ if(p.billId===bill.id) existing[p.period]=true; });
+  return occurrencesInMonth(bill,y,m).filter(function(o){ return !existing[o.period]; });
+}
+function backfillPeriodFieldHtml(bill,monthVal){
+  var oc=backfillOccurrences(bill,monthVal);
+  if(!oc.length) return '<p style="color:var(--muted);font-size:13px;margin:-6px 0 14px">No due date left to add for that month \u2014 it may already have a payment, or this bill isn\u2019t due then.</p>';
+  return '<div class="field"><label>Which due date</label><select id="f-bf-period">'
+    +oc.map(function(o){ return '<option value="'+esc(o.period)+'">'+esc(periodDisplay(o.dueDate))+'</option>'; }).join('')
+    +'</select></div>';
+}
+function backfillModal(billId){
+  var b=billById(billId); if(!b) return;
+  var today=new Date();
+  var prev=new Date(today.getFullYear(),today.getMonth()-1,1);
+  var defMonth=prev.getFullYear()+'-'+pad2(prev.getMonth()+1);
+  var maxMonth=today.getFullYear()+'-'+pad2(today.getMonth()+1);
+  openModal('<h2>Add a past payment '+infoI('backfill')+'</h2>'
+    +'<div class="field"><label>Month it was due</label><input type="month" id="f-bf-month" data-billid="'+b.id+'" value="'+defMonth+'" max="'+maxMonth+'"></div>'
+    +'<div id="f-bf-periodwrap">'+backfillPeriodFieldHtml(b,defMonth)+'</div>'
+    +'<div class="field"><label>Amount paid</label><input type="number" id="f-bf-amount" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div>'
+    +'<div class="btnrow"><button class="btn ghost" data-action="modal-close">Cancel</button>'
+    +'<button class="btn" data-action="save-backfill" data-id="'+b.id+'">Add payment</button></div>');
+}
 function catsModal(){
   var rows=db.categories.map(function(c,i){
     return '<div class="row"><div class="cat-emoji">'+esc(c.icon)+'</div><div class="main"><div class="name">'+esc(c.label)+'</div></div>'
@@ -881,6 +915,7 @@ var INFO_TEXTS={
   home:['This month','Every bill due this month appears here automatically \u2014 just opening the app lays them out. Tap the circle when one\u2019s paid; tap the amount to set or fix what it cost. Red means overdue, amber means due within 5 days.'],
   bills:['Your bills','This is the master list \u2014 each recurring bill lives here once, and PaidUp generates its due dates every month from this. Tap a bill to see its full history and yearly totals.'],
   history:['Payment history','Every period this bill has come due, with what you paid. The year header totals what you\u2019ve actually paid, so you can see spending change year over year.'],
+  backfill:['Adding a past payment','For a bill you added after it was already underway \u2014 pick the month it was due, then the exact date, so it counts toward that month\u2019s spend history exactly like the ones PaidUp generated on its own.'],
   spendhistory:['Spend history','Every month you\u2019ve had bills paid, across all of them \u2014 archived bills included, since that\u2019s still real money spent. Tap a month to see which bills made it up.'],
   backup:['Backups','Your data never leaves this device on its own \u2014 which also means only you can back it up. The file is plain JSON named paidup-backup-(date).json; restoring it brings everything back exactly.'],
   addbill:['Adding a bill','You add each bill once. Every month (or week, or year \u2014 whatever you choose) PaidUp creates that period\u2019s entry by itself, pre-filled with the last amount you paid.'],
@@ -967,6 +1002,25 @@ document.addEventListener('click',function(ev){
     openHistoryMonths[mk]=!openHistoryMonths[mk];
     render();
   }
+  else if(act==='backfill-payment'){ backfillModal(id); }
+  else if(act==='save-backfill'){
+    var bfBill=billById(id); if(!bfBill) return;
+    var mv=$('#f-bf-month').value;
+    if(!mv){ alert('Pick a month.'); return; }
+    var mp=mv.split('-'); var by=+mp[0], bm=+mp[1]-1;
+    var bfSel=$('#f-bf-period');
+    if(!bfSel || !bfSel.value){ alert('No due date available to add for that month.'); return; }
+    var bfOc=occurrencesInMonth(bfBill,by,bm).filter(function(o){ return o.period===bfSel.value; })[0];
+    if(!bfOc){ alert('That due date isn\u2019t available anymore \u2014 pick the month again.'); return; }
+    if(db.payments.some(function(p){ return p.billId===bfBill.id && p.period===bfOc.period; })){
+      alert('That period already has a payment.'); closeModal(); render(); return;   /* dedupe guard */
+    }
+    var bfAmt=parseFloat($('#f-bf-amount').value);
+    if(!(bfAmt>=0)){ alert('Enter an amount.'); return; }
+    db.payments.push({ id:uid(), billId:bfBill.id, period:bfOc.period, amount:bfAmt,
+      paid:true, paidAt:bfOc.dueDate, dueDate:bfOc.dueDate, createdAt:new Date().toISOString() });
+    safeSave(); closeModal(); render();
+  }
   else if(act==='archive-bill'){
     var ab=billById(id); if(!ab) return;
     ab.archived=!ab.archived; ab.updatedAt=new Date().toISOString();
@@ -1041,6 +1095,10 @@ document.addEventListener('click',function(ev){
 document.addEventListener('change',function(ev){
   if(ev.target.id==='importFile' && ev.target.files.length){ doImport(ev.target.files[0]); ev.target.value=''; }
   if(ev.target.id==='f-cadence'){ $('#f-when').innerHTML=cadenceFieldsHtml(ev.target.value,{}); }
+  if(ev.target.id==='f-bf-month'){
+    var bfb=billById(ev.target.dataset.billid);
+    $('#f-bf-periodwrap').innerHTML = bfb ? backfillPeriodFieldHtml(bfb, ev.target.value) : '';
+  }
 });
 document.addEventListener('click',function(ev){
   var seg=ev.target.closest('.seg button');
