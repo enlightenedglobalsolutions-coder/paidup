@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.13-0840 (888cb8e)';</script>
+<script>window.EGS_VERSION='2026.09.13-0911 (52d5324)';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -104,6 +104,7 @@ main{padding:12px 14px 96px;max-width:640px;margin:0 auto}
 .due{font-size:12.5px;color:var(--muted)}
 .due.overdue{color:var(--danger);font-weight:600}
 .due.soon{color:var(--warn);font-weight:600}
+button.due:active{opacity:.65}
 
 /* attention banner — shows every open when something needs paying; deliberately not snoozable */
 .attn{display:flex;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--warn);border-left:5px solid var(--warn);border-radius:12px;padding:12px 14px;margin-bottom:12px}
@@ -473,12 +474,15 @@ function paymentRow(p){
     var diff=Math.round((parseYmd(p.dueDate)-parseYmd(t))/86400000);
     dueTxt = diff<0 ? (Math.abs(diff)+'d overdue') : diff===0 ? 'Due today' : diff===1 ? 'Due tomorrow' : 'Due '+periodDisplay(p.dueDate);
   }
+  var dueEl = s==='paid'
+    ? '<button class="due" data-action="edit-paid-date" data-id="'+p.id+'">'+esc(dueTxt)+'</button>'
+    : '<span class="due '+(s==='overdue'?'overdue':s==='soon'?'soon':'')+'">'+esc(dueTxt)+'</span>';
   return '<div class="row st-'+s+'">'
     +'<button class="paycircle" data-action="toggle-paid" data-id="'+p.id+'" aria-label="Mark paid"><span class="ring"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span></button>'
     +'<div class="main" data-action="open-bill" data-id="'+(b?b.id:'')+'">'
       +'<div class="name">'+(c?'<span style="margin-right:5px">'+esc(c.icon)+'</span>':'')+esc(b?b.name:'(deleted bill)')+'</div>'
       +'<div class="sub"><span class="chip '+(b&&b.method==='autopay'?'auto':'')+'">'+(b&&b.method==='autopay'?'Autopay':'I pay this')+'</span>'
-      +'<span class="due '+(s==='overdue'?'overdue':s==='soon'?'soon':'')+'">'+esc(dueTxt)+'</span></div>'
+      +dueEl+'</div>'
     +'</div>'
     +'<button class="amt '+(p.amount>0?'':'unset')+'" data-action="edit-amount" data-id="'+p.id+'">'+(p.amount>0?money(p.amount):'set $')+'</button>'
   +'</div>';
@@ -592,10 +596,14 @@ function renderDetail(){
         return '<div class="monthtotal"><span>'+esc(MONTHS[+mk.slice(5,7)-1])+'</span><span>'+money(mTotal)+' paid</span></div>'
           +mPays.map(function(p){
             var s=statusFor(p,todayStr());
+            var dTxt=p.paid?('Paid'+(p.paidAt?' '+periodDisplay(p.paidAt):'')):('Due '+esc(periodDisplay(p.dueDate)));
+            var dEl=p.paid
+              ? '<button class="due" data-action="edit-paid-date" data-id="'+p.id+'">'+dTxt+'</button>'
+              : '<span class="due">'+dTxt+'</span>';
             return '<div class="row st-'+s+'">'
               +'<button class="paycircle" data-action="toggle-paid" data-id="'+p.id+'"><span class="ring"><svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg></span></button>'
               +'<div class="main"><div class="name">'+esc(periodDisplay(p.period))+'</div>'
-              +'<div class="sub"><span class="due">'+(p.paid?('Paid'+(p.paidAt?' '+periodDisplay(p.paidAt):'')):('Due '+esc(periodDisplay(p.dueDate))))+'</span></div></div>'
+              +'<div class="sub">'+dEl+'</div></div>'
               +'<button class="amt '+(p.amount>0?'':'unset')+'" data-action="edit-amount" data-id="'+p.id+'">'+(p.amount>0?money(p.amount):'set $')+'</button>'
             +'</div>';
           }).join('');
@@ -857,6 +865,32 @@ function amountModal(payId,thenPaid){
     +'<button class="btn" data-action="save-amount" data-id="'+p.id+'"'+(thenPaid?' data-thenpaid="1"':'')+'>'+(thenPaid?'Save \u0026 mark paid':'Save')+'</button></div>');
 }
 
+/* Pure validator for editing a payment's paid date after the fact — the
+   real case this exists for: a payment got marked paid with the wrong
+   date and there was no way to fix it. Deliberately edits paidAt only,
+   never dueDate: dueDate is cadence-generated (see occurrencesInMonth) and
+   is what historyByMonth groups by, so leaving it alone means correcting
+   a paid date can NEVER move a payment into a different Spend History
+   month — only when it was actually tapped paid, not what it counts
+   toward, changes. `today` is passed in (not read via todayStr()) so this
+   stays deterministic and testable, same pattern as statusFor(p,today). */
+function buildPaidDateEdit(payment,newDateRaw,today){
+  if(!payment || !payment.paid) return { error:'This payment isn\u2019t marked paid yet.' };
+  if(!newDateRaw) return { error:'Pick a date.' };
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(newDateRaw)) return { error:'Pick a valid date.' };
+  if(newDateRaw>today) return { error:'Paid date can\u2019t be in the future.' };
+  return { paidAt:newDateRaw };
+}
+function paidDateModal(payId){
+  var p=payById(payId); if(!p || !p.paid) return;
+  var b=billById(p.billId);
+  openModal('<h2>Paid date \u2014 '+esc(b?b.name:'')+'</h2>'
+    +'<div class="field"><label>'+esc(periodDisplay(p.period))+'</label>'
+    +'<input type="date" id="f-paiddate" value="'+esc(p.paidAt||todayStr())+'" max="'+todayStr()+'"></div>'
+    +'<div class="btnrow"><button class="btn ghost" data-action="modal-close">Cancel</button>'
+    +'<button class="btn" data-action="save-paiddate" data-id="'+p.id+'">Save</button></div>');
+}
+
 /* Back-filling past payments (EGS-STD:backfill) \u2014 for a period that predates
    the bill being added, so ensureCurrentPeriodPayments never created a row
    for it. occurrencesInMonth is the same pure generator the auto-create path
@@ -1060,6 +1094,14 @@ document.addEventListener('click',function(ev){
     if(!(v>=0)){ alert('Enter a number.'); return; }
     pm.amount=v;
     if(el.dataset.thenpaid==='1' && !pm.paid){ pm.paid=true; pm.paidAt=todayStr(); }
+    safeSave(); closeModal(); render();
+  }
+  else if(act==='edit-paid-date'){ paidDateModal(id); }
+  else if(act==='save-paiddate'){
+    var pd=payById(id); if(!pd) return;
+    var pdResult=buildPaidDateEdit(pd, $('#f-paiddate').value, todayStr());
+    if(pdResult.error){ alert(pdResult.error); return; }
+    pd.paidAt=pdResult.paidAt;
     safeSave(); closeModal(); render();
   }
   else if(act==='manage-cats'){ catsModal(); }

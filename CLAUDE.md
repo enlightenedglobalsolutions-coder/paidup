@@ -80,6 +80,23 @@ accounts, no sign-up, no analytics.
   without a DOM — same reason `migrate()`/`raceAbort()` were extracted — the
   handler itself is now just DOM reads + this call + `alert`/`closeModal`/
   `render`. See Tests.
+- Editing a payment's paid date (thread 2026-09-13, real case: a payment got
+  marked paid with the wrong date and there was no way to fix it): the
+  "Paid <date>" text on a paid payment row (Home and bill detail) is now a
+  button, `data-action="edit-paid-date"`, opening `paidDateModal()` — a
+  `<input type="date">` capped at `max="`+todayStr()+`"`. Same
+  extract-for-testability split as backfill: `buildPaidDateEdit(payment,
+  newDateRaw,today)` does the validation and returns `{paidAt}` or
+  `{error}`; the `save-paiddate` handler just applies `pd.paidAt=
+  pdResult.paidAt`. **Settled in-session: only `paidAt` is editable, never
+  `dueDate`.** `dueDate` is cadence-generated and is what `historyByMonth`
+  groups by, so this means correcting a paid date can never move a payment
+  into a different Spend History month — proven by test (checking the month
+  bucket before/after, and that a successful edit's return object never
+  carries a `dueDate` key), not just asserted. If `dueDate` ever becomes
+  editable too, revisit this — it would need the month-shift question
+  answered for real, and the "can't move months" test would need rewriting,
+  not just relaxing.
 
 ## Platform layer
 
@@ -109,7 +126,7 @@ accounts, no sign-up, no analytics.
 
 Run from `apps/paidup/`:
 ```
-node test_paidup.js     # 128/128 passing as of 2026-09-13
+node test_paidup.js     # 138/138 passing as of 2026-09-13
 node test_sw_logic.js   # 26/26 passing as of 2026-09-13
 ```
 - `test_paidup.js` (no deps, reads `index.html`/`service-worker.js`/
@@ -165,6 +182,16 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-13
     `buildBackfillPayment`'s full decision tree (valid, duplicate period,
     cadence-impossible period, negative amount, unparseable amount). All 11
     mutation-tested the same way as the cadence suite.
+  - `buildPaidDateEdit(payment,newDateRaw,today)` (same section, added
+    2026-09-13): valid edit, the today-itself inclusive boundary, a future
+    date refused, an unpaid payment refused, a missing payment refused
+    without throwing, an empty date, a malformed date string, and — the
+    settled question from that thread — a structural check that a
+    successful edit's return object carries `paidAt` and never `dueDate`,
+    plus an end-to-end check that applying the edit leaves
+    `historyByMonth()`'s month bucket unchanged. 6 mutations proved each
+    bites, including one that added a `dueDate` key to the return value
+    specifically to prove the month-shift guard would catch it.
   - Install-banner and backup-nudge logic (`installBannerWanted`,
     `backupNudgeWanted`, `renderBanners`) are extracted the same way but
     only **pattern-matched** against their source — not run.
@@ -175,11 +202,13 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-13
 - `test_sw_logic.js`: 26 tests over the extracted `sw_logic.js` pure
   functions (`cacheName`, `isOwnOldCache`, `raceAbort`, `shouldHandle`,
   `isNavigationRequest`, `NETWORK_TIMEOUT_MS`).
-- **Not covered by anything:** `backfillModal()` and `backfillPeriodFieldHtml()`
-  themselves (the DOM-rendering half — `openModal`, the `<select>` markup) —
-  only the pure decision logic they call is tested. Same for the
-  `save-backfill` click handler's own DOM glue (reading `$('#f-bf-month')`
-  etc.) now that the decision logic behind it is `buildBackfillPayment()`.
+- **Not covered by anything:** `backfillModal()`, `backfillPeriodFieldHtml()`,
+  and `paidDateModal()` themselves (the DOM-rendering half — `openModal`,
+  the `<select>`/`<input type="date">` markup) — only the pure decision
+  logic they call is tested. Same for the `save-backfill` and
+  `save-paiddate` click handlers' own DOM glue (reading `$('#f-bf-month')`,
+  `$('#f-paiddate')`, etc.) now that the decision logic behind each is a
+  pure function.
 
 ## Gotchas
 

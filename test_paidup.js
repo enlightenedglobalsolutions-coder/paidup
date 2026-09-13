@@ -237,8 +237,9 @@ if(CAD){
   ok('periodDisplay: dated key (YYYY-MM-DD)', CAD.periodDisplay('2026-08-31') === 'Aug 31, 2026', CAD.periodDisplay('2026-08-31'));
 }
 
-/* ---- Spend History / backfill: historyByMonth(), renderHistory(), --------
-   backfillOccurrences(), buildBackfillPayment() ------------------------------
+/* ---- Spend History / backfill / paid-date edit: historyByMonth(), --------
+   renderHistory(), backfillOccurrences(), buildBackfillPayment(),
+   buildPaidDateEdit() ---------------------------------------------------
    Found 2026-09-13: neither Spend History nor the backfill flow had a test.
    Unlike the cadence block these close over app state (the global `db`) and
    call each other (billById/catById/uid/money/infoI) rather than being
@@ -263,9 +264,17 @@ if(CAD){
    several same-bill payments in one month all landing in that one bucket
    (weekly), a bill paid in a different month than it fell due (grouped by
    dueDate, never paidAt), and a month with no payments producing no entry at
-   all rather than a phantom zero row. */
+   all rather than a phantom zero row.
+   Added 2026-09-13, same section: buildPaidDateEdit(payment,newDateRaw,today)
+   — the real case was a payment marked paid with the wrong date and no way
+   to fix it. Settled in-session: only paidAt is editable, never dueDate.
+   dueDate is cadence-generated and is what historyByMonth groups by, so a
+   paid-date correction can never move a payment into a different Spend
+   History month — proven below, not just asserted, by checking the month
+   bucket before and after the edit is applied. `today` is a parameter
+   (never read live) for the same determinism reason statusFor(p,today) is. */
 var HIST_FN_NAMES = ['billById','catById','historyByMonth','renderHistory',
-  'backfillOccurrences','buildBackfillPayment','uid','money','infoI'];
+  'backfillOccurrences','buildBackfillPayment','buildPaidDateEdit','uid','money','infoI'];
 var histSrcs = {}, histMissing = [];
 HIST_FN_NAMES.forEach(function(n){
   /* same-line close tried first (greedy, so it reaches a multi-brace
@@ -285,7 +294,8 @@ if(CAD && histMissing.length === 0){
     var histBody = HIST_FN_NAMES.map(function(n){ return histSrcs[n]; }).join('\n')
       + '\nreturn {billById:billById, catById:catById, historyByMonth:historyByMonth, '
       + 'renderHistory:renderHistory, backfillOccurrences:backfillOccurrences, '
-      + 'buildBackfillPayment:buildBackfillPayment, uid:uid, money:money, infoI:infoI};';
+      + 'buildBackfillPayment:buildBackfillPayment, buildPaidDateEdit:buildPaidDateEdit, '
+      + 'uid:uid, money:money, infoI:infoI};';
     var buildHist = new Function('db','MONTHS','esc','periodDisplay','occurrencesInMonth','openHistoryMonths', histBody);
     HDB = { categories:[{ id:'c1', label:'Housing', icon:'🏠' }], bills:[], payments:[] };
     HOPEN = {};
@@ -462,6 +472,55 @@ if(HIST){
   var bfNaN = HIST.buildBackfillPayment(HDB.bills[0], 2026, 10, '2026-11', 'not-a-number');
   ok('buildBackfillPayment refuses an unparseable amount',
      bfNaN.error === 'Enter an amount.', JSON.stringify(bfNaN));
+
+  /* -- buildPaidDateEdit: the full decision tree -- */
+  var paidPayment = { id:'pp1', billId:'b1', period:'2026-09', dueDate:'2026-09-01', paidAt:'2026-09-01', amount:1000, paid:true };
+  var unpaidPayment = { id:'pp2', billId:'b1', period:'2026-10', dueDate:'2026-10-01', paidAt:null, amount:1000, paid:false };
+
+  var pdOk = HIST.buildPaidDateEdit(paidPayment, '2026-09-03', '2026-09-13');
+  ok('buildPaidDateEdit accepts a valid past date on a paid payment',
+     pdOk.paidAt === '2026-09-03' && !pdOk.error, JSON.stringify(pdOk));
+  ok('a successful edit returns only paidAt, never a dueDate — the whole point being that Spend History can\'t move',
+     'paidAt' in pdOk && !('dueDate' in pdOk), JSON.stringify(pdOk));
+
+  var pdToday = HIST.buildPaidDateEdit(paidPayment, '2026-09-13', '2026-09-13');
+  ok('buildPaidDateEdit accepts today itself (inclusive boundary, not "future")',
+     pdToday.paidAt === '2026-09-13' && !pdToday.error, JSON.stringify(pdToday));
+
+  var pdFuture = HIST.buildPaidDateEdit(paidPayment, '2026-09-14', '2026-09-13');
+  ok('buildPaidDateEdit refuses a date after today',
+     pdFuture.error === 'Paid date can’t be in the future.', JSON.stringify(pdFuture));
+
+  var pdUnpaid = HIST.buildPaidDateEdit(unpaidPayment, '2026-10-01', '2026-09-13');
+  ok('buildPaidDateEdit refuses to touch a payment that isn’t marked paid',
+     pdUnpaid.error === 'This payment isn’t marked paid yet.', JSON.stringify(pdUnpaid));
+
+  var pdMissing = HIST.buildPaidDateEdit(null, '2026-09-03', '2026-09-13');
+  ok('buildPaidDateEdit refuses a missing payment rather than throwing',
+     !!pdMissing.error, JSON.stringify(pdMissing));
+
+  var pdEmpty = HIST.buildPaidDateEdit(paidPayment, '', '2026-09-13');
+  ok('buildPaidDateEdit refuses an empty date',
+     pdEmpty.error === 'Pick a date.', JSON.stringify(pdEmpty));
+
+  var pdMalformed = HIST.buildPaidDateEdit(paidPayment, '09/03/2026', '2026-09-13');
+  ok('buildPaidDateEdit refuses a malformed date string',
+     pdMalformed.error === 'Pick a valid date.', JSON.stringify(pdMalformed));
+
+  /* -- the settled question: editing the paid date can NEVER move a
+     payment into a different Spend History month, because the edit only
+     ever touches paidAt and historyByMonth groups by dueDate -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [{ id:'p1', billId:'b1', period:'2026-09', dueDate:'2026-09-01', paidAt:'2026-09-01', amount:1000, paid:true }];
+  var monthBefore = Object.keys(HIST.historyByMonth());
+  var editResult = HIST.buildPaidDateEdit(HDB.payments[0], '2026-10-25', '2026-10-25');
+  ok('fixture sanity: the edit itself is accepted', !editResult.error, JSON.stringify(editResult));
+  HDB.payments[0].paidAt = editResult.paidAt;   /* apply it, exactly as the click handler would */
+  var monthAfter = Object.keys(HIST.historyByMonth());
+  ok('editing the paid date into a different month leaves Spend History’s month bucket unchanged',
+     monthBefore.length === 1 && monthBefore[0] === '2026-09' &&
+     monthAfter.length === 1 && monthAfter[0] === '2026-09',
+     'before=' + monthBefore.join(',') + ' after=' + monthAfter.join(','));
 }
 
 /* ---- install banner ------------------------------------------------------- */
