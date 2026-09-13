@@ -97,6 +97,19 @@ accounts, no sign-up, no analytics.
   editable too, revisit this — it would need the month-shift question
   answered for real, and the "can't move months" test would need rewriting,
   not just relaxing.
+- Real bug, same day, found immediately after shipping the above: bill
+  detail's own "Payment history" rollup groups by `dueDate` (same rule as
+  Spend History) but its per-row label used to be built from `paidAt` when
+  paid — so editing a payment's paid date correctly left it under the same
+  month bucket, but the row's own text then showed a date from a
+  *different* month than the header directly above it. Fixed by
+  `paymentHistoryRowText(p)`: `(p.paid?'Paid ':'Due ')+periodDisplay(p.dueDate)`
+  — built from `dueDate` on both branches, so the label can never disagree
+  with the bucket, because it's the same field driving both. `paidAt` is
+  still stored and still fully visible/editable via the modal; it's just
+  never the text shown inside a month-grouped list. Home's `paymentRow`
+  still shows `Paid <paidAt>` directly and is unaffected — Home has no
+  month bucket for a row to disagree with.
 
 ## Platform layer
 
@@ -126,7 +139,7 @@ accounts, no sign-up, no analytics.
 
 Run from `apps/paidup/`:
 ```
-node test_paidup.js     # 138/138 passing as of 2026-09-13
+node test_paidup.js     # 145/145 passing as of 2026-09-13
 node test_sw_logic.js   # 26/26 passing as of 2026-09-13
 ```
 - `test_paidup.js` (no deps, reads `index.html`/`service-worker.js`/
@@ -192,6 +205,23 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-13
     `historyByMonth()`'s month bucket unchanged. 6 mutations proved each
     bites, including one that added a `dueDate` key to the return value
     specifically to prove the month-shift guard would catch it.
+  - `paymentHistoryRowText(p)` (same section, added later the same day —
+    real bug found right after shipping the above): an unpaid payment
+    reads `Due <dueDate>`; paid-on-time reads `Paid <dueDate>`; the exact
+    repro (paid date corrected into a different month than `dueDate`)
+    still reads the `dueDate` month, not `paidAt`'s; a paid payment with
+    no `paidAt` on record reads the same way rather than blank or
+    `"undefined"`; and an edit-then-regroup end-to-end check applies a
+    real `buildPaidDateEdit` into a different month and confirms both the
+    row's own label and `historyByMonth()`'s bucket are unchanged
+    afterward. Plus a pattern-match "wiring guard" (same tier as the
+    install-banner checks below) confirming `renderDetail` actually calls
+    `paymentHistoryRowText` rather than an inline duplicate that could
+    silently drift from it. 3 mutations proved each bites — including
+    reintroducing the exact shipped bug (`paidAt||dueDate` in the row
+    text) and confirming only the two tests built to catch a *divergent*
+    paid date fail, while the on-time and no-`paidAt` cases stay green
+    (exactly how the bug hid before this section existed).
   - Install-banner and backup-nudge logic (`installBannerWanted`,
     `backupNudgeWanted`, `renderBanners`) are extracted the same way but
     only **pattern-matched** against their source — not run.

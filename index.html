@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.13-0911 (52d5324)';</script>
+<script>window.EGS_VERSION='2026.09.13-1128 (6bcc933)';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -553,6 +553,23 @@ function renderBills(){
   return h;
 }
 
+/* Real bug 2026-09-13: this label sits inside a dueDate-grouped month
+   bucket (both here in bill detail and in Spend History), but used to be
+   built from paidAt when paid. Editing a payment's paid date changes only
+   paidAt (correctly \u2014 see buildPaidDateEdit; dueDate is what the bucket
+   itself is keyed on, and Spend History deliberately never moves on a
+   paid-date edit), so a corrected paid date could land in a different
+   month than the header directly above the row \u2014 the row disagreeing
+   with its own bucket. History groups by dueDate, full stop, so the label
+   is now built from dueDate too, on both branches: they can never
+   disagree, because it's the same field. paidAt is still stored and still
+   fully visible/editable via the edit-paid-date modal (pre-filled with
+   the current value) \u2014 it's just never the text shown inside a
+   month-grouped list. (Home's paymentRow still shows "Paid <paidAt>"
+   directly, which is fine: Home has no month bucket to disagree with.) */
+function paymentHistoryRowText(p){
+  return (p.paid?'Paid ':'Due ')+periodDisplay(p.dueDate);
+}
 function renderDetail(){
   var b=billById(detailBillId);
   if(!b){ screen='bills'; return renderBills(); }
@@ -596,7 +613,7 @@ function renderDetail(){
         return '<div class="monthtotal"><span>'+esc(MONTHS[+mk.slice(5,7)-1])+'</span><span>'+money(mTotal)+' paid</span></div>'
           +mPays.map(function(p){
             var s=statusFor(p,todayStr());
-            var dTxt=p.paid?('Paid'+(p.paidAt?' '+periodDisplay(p.paidAt):'')):('Due '+esc(periodDisplay(p.dueDate)));
+            var dTxt=esc(paymentHistoryRowText(p));
             var dEl=p.paid
               ? '<button class="due" data-action="edit-paid-date" data-id="'+p.id+'">'+dTxt+'</button>'
               : '<span class="due">'+dTxt+'</span>';

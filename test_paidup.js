@@ -272,9 +272,20 @@ if(CAD){
    paid-date correction can never move a payment into a different Spend
    History month — proven below, not just asserted, by checking the month
    bucket before and after the edit is applied. `today` is a parameter
-   (never read live) for the same determinism reason statusFor(p,today) is. */
+   (never read live) for the same determinism reason statusFor(p,today) is.
+   Added again 2026-09-13, same day, real bug: that "can never move" proof
+   covered Spend History's bucket key, but not the LABEL bill detail's own
+   Payment History rollup shows for each row — which used to be built from
+   paidAt while the rollup's own month bucket is built from dueDate (the
+   same rule Spend History follows). Edwin's report: the corrected date
+   displayed fine, but the row still sat under its old month — a row
+   disagreeing with its own bucket header. `paymentHistoryRowText(p)` is
+   the extracted decision now: built from dueDate on both the paid and
+   unpaid branches, so the label can't disagree with the bucket, because
+   it's the same field driving both. */
 var HIST_FN_NAMES = ['billById','catById','historyByMonth','renderHistory',
-  'backfillOccurrences','buildBackfillPayment','buildPaidDateEdit','uid','money','infoI'];
+  'backfillOccurrences','buildBackfillPayment','buildPaidDateEdit',
+  'paymentHistoryRowText','uid','money','infoI'];
 var histSrcs = {}, histMissing = [];
 HIST_FN_NAMES.forEach(function(n){
   /* same-line close tried first (greedy, so it reaches a multi-brace
@@ -295,7 +306,7 @@ if(CAD && histMissing.length === 0){
       + '\nreturn {billById:billById, catById:catById, historyByMonth:historyByMonth, '
       + 'renderHistory:renderHistory, backfillOccurrences:backfillOccurrences, '
       + 'buildBackfillPayment:buildBackfillPayment, buildPaidDateEdit:buildPaidDateEdit, '
-      + 'uid:uid, money:money, infoI:infoI};';
+      + 'paymentHistoryRowText:paymentHistoryRowText, uid:uid, money:money, infoI:infoI};';
     var buildHist = new Function('db','MONTHS','esc','periodDisplay','occurrencesInMonth','openHistoryMonths', histBody);
     HDB = { categories:[{ id:'c1', label:'Housing', icon:'🏠' }], bills:[], payments:[] };
     HOPEN = {};
@@ -521,6 +532,59 @@ if(HIST){
      monthBefore.length === 1 && monthBefore[0] === '2026-09' &&
      monthAfter.length === 1 && monthAfter[0] === '2026-09',
      'before=' + monthBefore.join(',') + ' after=' + monthAfter.join(','));
+
+  /* -- paymentHistoryRowText: the real 2026-09-13 bug. Bill detail's
+     Payment History groups by dueDate (same rule as Spend History) but
+     used to build this row's own label from paidAt, so a corrected paid
+     date could show a month different from the header directly above it
+     — a row visibly disagreeing with its own bucket. The label is now
+     built from dueDate on both branches, so it can never disagree. -- */
+  var duePayment = { billId:'b1', dueDate:'2026-09-01', paidAt:null, paid:false };
+  ok('paymentHistoryRowText: an unpaid payment reads "Due <dueDate>"',
+     HIST.paymentHistoryRowText(duePayment) === 'Due Sep 1, 2026',
+     HIST.paymentHistoryRowText(duePayment));
+
+  var paidSameMonth = { billId:'b1', dueDate:'2026-09-01', paidAt:'2026-09-01', paid:true };
+  ok('paymentHistoryRowText: paid on time reads "Paid <dueDate>"',
+     HIST.paymentHistoryRowText(paidSameMonth) === 'Paid Sep 1, 2026',
+     HIST.paymentHistoryRowText(paidSameMonth));
+
+  /* the exact repro: due Sep 1, corrected paid date in August */
+  var paidDifferentMonth = { billId:'b1', dueDate:'2026-09-01', paidAt:'2026-08-15', paid:true };
+  ok('paymentHistoryRowText: a paid date in a DIFFERENT month than dueDate still reads the dueDate month, not paidAt\'s',
+     HIST.paymentHistoryRowText(paidDifferentMonth) === 'Paid Sep 1, 2026',
+     HIST.paymentHistoryRowText(paidDifferentMonth));
+
+  var paidNoDate = { billId:'b1', dueDate:'2026-09-01', paidAt:null, paid:true };
+  ok('paymentHistoryRowText: paid with no paidAt on record still reads the dueDate month, not blank or "undefined"',
+     HIST.paymentHistoryRowText(paidNoDate) === 'Paid Sep 1, 2026',
+     HIST.paymentHistoryRowText(paidNoDate));
+
+  /* -- edit-then-regroup, end to end: build a payment, read its row text
+     and bucket, apply a real buildPaidDateEdit into a different month
+     exactly as the click handler would, then confirm BOTH the bucket AND
+     the row's own label are unchanged — proving display and grouping
+     agree throughout the edit, not just immediately after fixture setup -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [{ id:'p1', billId:'b1', period:'2026-09', dueDate:'2026-09-01', paidAt:'2026-09-01', amount:1000, paid:true }];
+  var rowTextBefore = HIST.paymentHistoryRowText(HDB.payments[0]);
+  var bucketBefore = Object.keys(HIST.historyByMonth());
+  var regroupEdit = HIST.buildPaidDateEdit(HDB.payments[0], '2026-08-15', '2026-09-13');
+  ok('edit-then-regroup fixture sanity: the edit is accepted', !regroupEdit.error, JSON.stringify(regroupEdit));
+  HDB.payments[0].paidAt = regroupEdit.paidAt;
+  var rowTextAfter = HIST.paymentHistoryRowText(HDB.payments[0]);
+  var bucketAfter = Object.keys(HIST.historyByMonth());
+  ok('edit-then-regroup: the row\'s own label agrees with its bucket both before and after the paid-date edit',
+     rowTextBefore === 'Paid Sep 1, 2026' && rowTextAfter === 'Paid Sep 1, 2026' &&
+     bucketBefore.join(',') === '2026-09' && bucketAfter.join(',') === '2026-09',
+     'before=' + rowTextBefore + '/' + bucketBefore.join(',') + ' after=' + rowTextAfter + '/' + bucketAfter.join(','));
+
+  /* wiring guard: paymentHistoryRowText being correct is worthless if
+     renderDetail's own row-building silently reverts to an inline
+     duplicate instead of calling it — same tier as the install-banner
+     pattern-matches above (source-matched, not behaviourally run). */
+  ok('renderDetail\'s payment-history row actually calls paymentHistoryRowText, not an inline duplicate',
+     /var dTxt=esc\(paymentHistoryRowText\(p\)\)/.test(HTML));
 }
 
 /* ---- install banner ------------------------------------------------------- */
