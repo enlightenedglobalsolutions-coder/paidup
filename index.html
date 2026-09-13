@@ -26,7 +26,7 @@
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <!-- EGS-STD:coldopen-version -->
-<script>window.EGS_VERSION='2026.09.12-1048 (e5012b2)';</script>
+<script>window.EGS_VERSION='2026.09.13-0840 (888cb8e)';</script>
 <style>
 /* ============ THEME TOKENS ============ */
 /* EGS-STD:themes — role tokens, picked per theme by measured contrast, never assumed */
@@ -869,6 +869,21 @@ function backfillOccurrences(bill,monthVal){
   db.payments.forEach(function(p){ if(p.billId===bill.id) existing[p.period]=true; });
   return occurrencesInMonth(bill,y,m).filter(function(o){ return !existing[o.period]; });
 }
+/* Pure record-builder for the save-backfill action: given a bill, the
+   chosen year/month, the period key the user selected, and the raw amount
+   input, either returns { payment } to push or { error } to show — split
+   out of the click handler solely so it's callable without a DOM. */
+function buildBackfillPayment(bill,y,m,period,amountRaw){
+  var oc=occurrencesInMonth(bill,y,m).filter(function(o){ return o.period===period; })[0];
+  if(!oc) return { error:'That due date isn\u2019t available anymore \u2014 pick the month again.' };
+  if(db.payments.some(function(p){ return p.billId===bill.id && p.period===oc.period; })){
+    return { error:'That period already has a payment.', duplicate:true };
+  }
+  var amount=parseFloat(amountRaw);
+  if(!(amount>=0)) return { error:'Enter an amount.' };
+  return { payment:{ id:uid(), billId:bill.id, period:oc.period, amount:amount,
+    paid:true, paidAt:oc.dueDate, dueDate:oc.dueDate, createdAt:new Date().toISOString() } };
+}
 function backfillPeriodFieldHtml(bill,monthVal){
   var oc=backfillOccurrences(bill,monthVal);
   if(!oc.length) return '<p style="color:var(--muted);font-size:13px;margin:-6px 0 14px">No due date left to add for that month \u2014 it may already have a payment, or this bill isn\u2019t due then.</p>';
@@ -1010,15 +1025,13 @@ document.addEventListener('click',function(ev){
     var mp=mv.split('-'); var by=+mp[0], bm=+mp[1]-1;
     var bfSel=$('#f-bf-period');
     if(!bfSel || !bfSel.value){ alert('No due date available to add for that month.'); return; }
-    var bfOc=occurrencesInMonth(bfBill,by,bm).filter(function(o){ return o.period===bfSel.value; })[0];
-    if(!bfOc){ alert('That due date isn\u2019t available anymore \u2014 pick the month again.'); return; }
-    if(db.payments.some(function(p){ return p.billId===bfBill.id && p.period===bfOc.period; })){
-      alert('That period already has a payment.'); closeModal(); render(); return;   /* dedupe guard */
+    var bfResult=buildBackfillPayment(bfBill,by,bm,bfSel.value,$('#f-bf-amount').value);
+    if(bfResult.error){
+      alert(bfResult.error);
+      if(bfResult.duplicate){ closeModal(); render(); }   /* dedupe guard */
+      return;
     }
-    var bfAmt=parseFloat($('#f-bf-amount').value);
-    if(!(bfAmt>=0)){ alert('Enter an amount.'); return; }
-    db.payments.push({ id:uid(), billId:bfBill.id, period:bfOc.period, amount:bfAmt,
-      paid:true, paidAt:bfOc.dueDate, dueDate:bfOc.dueDate, createdAt:new Date().toISOString() });
+    db.payments.push(bfResult.payment);
     safeSave(); closeModal(); render();
   }
   else if(act==='archive-bill'){

@@ -73,9 +73,13 @@ accounts, no sign-up, no analytics.
   payment across every bill (archived included, deleted excluded — a
   deleted bill's payments are removed at delete time) by the month its
   `dueDate` falls in, newest first.
-- Backfill (`93a0fa4`, newest commit as of this doc): a bill's detail screen
-  can add a missing past-period payment, deduped against existing periods
-  for that bill.
+- Backfill (`93a0fa4`): a bill's detail screen can add a missing past-period
+  payment, deduped against existing periods for that bill. The validation
+  and record-construction (`buildBackfillPayment(bill,y,m,period,amountRaw)`)
+  was split out of the `save-backfill` click handler so it's callable
+  without a DOM — same reason `migrate()`/`raceAbort()` were extracted — the
+  handler itself is now just DOM reads + this call + `alert`/`closeModal`/
+  `render`. See Tests.
 
 ## Platform layer
 
@@ -105,8 +109,8 @@ accounts, no sign-up, no analytics.
 
 Run from `apps/paidup/`:
 ```
-node test_paidup.js     # 100/100 passing as of 2026-09-12
-node test_sw_logic.js   # 26/26 passing as of 2026-09-12
+node test_paidup.js     # 128/128 passing as of 2026-09-13
+node test_sw_logic.js   # 26/26 passing as of 2026-09-13
 ```
 - `test_paidup.js` (no deps, reads `index.html`/`service-worker.js`/
   `manifest.webmanifest` off disk):
@@ -137,6 +141,30 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-12
     corresponding line in `index.html`, confirming the expected test (and
     only that test) failed, then reverting — same proof discipline as
     `raceAbort`'s suite.
+  - Spend History and backfill (`historyByMonth()`, `renderHistory()`,
+    `backfillOccurrences()`, `buildBackfillPayment()`) — found 2026-09-13
+    with zero coverage. These close over `db` and call each other
+    (`billById`/`catById`/`uid`/`money`/`infoI`) rather than being
+    self-contained like the cadence block, so each named function is
+    extracted individually by regex (a same-line-close-first, multi-line-
+    fallback pattern, since some of these are one-liners) and run together
+    in one scope, with `db` an object the fixtures mutate in place between
+    cases and with the already-tested `CAD.occurrencesInMonth` /
+    `CAD.periodDisplay` injected rather than re-extracted — real
+    integration, proving backfill actually generates records from the
+    cadence logic rather than merely asserting it does. Covers: unpaid
+    payments excluded; a paid $0 or amount-less payment still counted (and
+    not corrupting the total into `$NaN`); an archived bill's payment
+    folded into the total; several same-bill payments in one month all
+    landing in that bucket (5 real weekly Mondays, not a hand-built list);
+    biweekly occurrences either side of a month boundary splitting into two
+    months; a bill paid in a different month than it fell due, grouped by
+    `dueDate` not `paidAt`; a month with no payments producing no map entry
+    (not a phantom `$0` row); the empty-store "No history yet" state;
+    newest-first ordering; `backfillOccurrences`' dedupe; and
+    `buildBackfillPayment`'s full decision tree (valid, duplicate period,
+    cadence-impossible period, negative amount, unparseable amount). All 11
+    mutation-tested the same way as the cadence suite.
   - Install-banner and backup-nudge logic (`installBannerWanted`,
     `backupNudgeWanted`, `renderBanners`) are extracted the same way but
     only **pattern-matched** against their source — not run.
@@ -147,9 +175,11 @@ node test_sw_logic.js   # 26/26 passing as of 2026-09-12
 - `test_sw_logic.js`: 26 tests over the extracted `sw_logic.js` pure
   functions (`cacheName`, `isOwnOldCache`, `raceAbort`, `shouldHandle`,
   `isNavigationRequest`, `NETWORK_TIMEOUT_MS`).
-- **Not covered by anything:**
-  - `historyByMonth()` / `renderHistory()` (Spend History).
-  - The backfill flow (`backfillModal`, `save-backfill` action).
+- **Not covered by anything:** `backfillModal()` and `backfillPeriodFieldHtml()`
+  themselves (the DOM-rendering half — `openModal`, the `<select>` markup) —
+  only the pure decision logic they call is tested. Same for the
+  `save-backfill` click handler's own DOM glue (reading `$('#f-bf-month')`
+  etc.) now that the decision logic behind it is `buildBackfillPayment()`.
 
 ## Gotchas
 

@@ -154,6 +154,7 @@ if(csi !== -1 && cei !== -1 && monthsSrc){
   }catch(e){ CAD = null; }
 }
 ok('cadence functions extracted and ran without throwing', !!CAD);
+var MONTHS_ARR = monthsSrc ? eval('[' + monthsSrc[1] + ']') : [];   /* reused by the History section below */
 
 if(CAD){
   /* -- day-31 clamping into February, leap and non-leap -- */
@@ -234,6 +235,233 @@ if(CAD){
      CAD.periodDisplay('2027-Q1') === 'Q1 2027', CAD.periodDisplay('2027-Q1'));
   ok('periodDisplay: annual key (YYYY)', CAD.periodDisplay('2027') === '2027', CAD.periodDisplay('2027'));
   ok('periodDisplay: dated key (YYYY-MM-DD)', CAD.periodDisplay('2026-08-31') === 'Aug 31, 2026', CAD.periodDisplay('2026-08-31'));
+}
+
+/* ---- Spend History / backfill: historyByMonth(), renderHistory(), --------
+   backfillOccurrences(), buildBackfillPayment() ------------------------------
+   Found 2026-09-13: neither Spend History nor the backfill flow had a test.
+   Unlike the cadence block these close over app state (the global `db`) and
+   call each other (billById/catById/uid/money/infoI) rather than being
+   self-contained, so each named function is extracted individually by regex
+   and run together in one scope, with `db` an object the fixtures below
+   mutate in place between cases (reassigning db.bills/db.payments, never the
+   db reference itself, so every extracted closure sees the update) and with
+   the ALREADY-TESTED CAD.occurrencesInMonth/CAD.periodDisplay injected
+   rather than re-extracted — real integration, not a stub, which is exactly
+   what proves backfill "generates records from the cadence logic" per the
+   thread rather than merely asserting it does. `esc` is hand-stubbed
+   (pass-through) since HTML-escaping isn't what this section is checking.
+   buildBackfillPayment did not exist before this thread: the validation and
+   record-construction that used to live inline in the save-backfill click
+   handler (DOM reads, alert, closeModal, render all mixed with the actual
+   decision logic) has been split into this pure function — same reason
+   migrate()/raceAbort() were extracted before it — so it's callable here
+   without a document. The click handler itself is untouched behaviourally;
+   see the refactor commit for the line-by-line equivalence.
+   Cases picked for where a wrong total is invisible rather than loud: unpaid
+   payments excluded, zero/unset amounts, archived bills' payments included,
+   several same-bill payments in one month all landing in that one bucket
+   (weekly), a bill paid in a different month than it fell due (grouped by
+   dueDate, never paidAt), and a month with no payments producing no entry at
+   all rather than a phantom zero row. */
+var HIST_FN_NAMES = ['billById','catById','historyByMonth','renderHistory',
+  'backfillOccurrences','buildBackfillPayment','uid','money','infoI'];
+var histSrcs = {}, histMissing = [];
+HIST_FN_NAMES.forEach(function(n){
+  /* same-line close tried first (greedy, so it reaches a multi-brace
+     line's REAL closing brace, e.g. billById's one-liner); falls back to
+     the multi-line "\n}" convention every top-level function in this file
+     otherwise follows (see the cadence extraction above). */
+  var re = new RegExp('function ' + n + '\\([^)]*\\)\\{(?:[^\\n]*\\}|[\\s\\S]*?\\n\\})');
+  var m = re.exec(HTML);
+  if(m) histSrcs[n] = m[0]; else histMissing.push(n);
+});
+ok('history/backfill functions all found in source (' + HIST_FN_NAMES.length + ' checked)',
+   histMissing.length === 0, histMissing.join(','));
+
+var HIST = null, HDB = null, HOPEN = null;
+if(CAD && histMissing.length === 0){
+  try{
+    var histBody = HIST_FN_NAMES.map(function(n){ return histSrcs[n]; }).join('\n')
+      + '\nreturn {billById:billById, catById:catById, historyByMonth:historyByMonth, '
+      + 'renderHistory:renderHistory, backfillOccurrences:backfillOccurrences, '
+      + 'buildBackfillPayment:buildBackfillPayment, uid:uid, money:money, infoI:infoI};';
+    var buildHist = new Function('db','MONTHS','esc','periodDisplay','occurrencesInMonth','openHistoryMonths', histBody);
+    HDB = { categories:[{ id:'c1', label:'Housing', icon:'🏠' }], bills:[], payments:[] };
+    HOPEN = {};
+    var escStub = function(s){ return String(s==null?'':s); };
+    HIST = buildHist(HDB, MONTHS_ARR, escStub, CAD.periodDisplay, CAD.occurrencesInMonth, HOPEN);
+  }catch(e){ HIST = null; }
+}
+ok('history/backfill functions extracted and ran without throwing', !!HIST);
+
+if(HIST){
+  /* -- unpaid payments excluded -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-05', dueDate:'2026-05-01', amount:1000, paid:true },
+    { id:'p2', billId:'b1', period:'2026-05-15', dueDate:'2026-05-15', amount:50, paid:false }
+  ];
+  var mUnpaid = HIST.historyByMonth();
+  ok('unpaid payments are excluded from the month bucket',
+     mUnpaid['2026-05'] && mUnpaid['2026-05'].length === 1 && mUnpaid['2026-05'][0].id === 'p1',
+     JSON.stringify(mUnpaid));
+
+  /* -- zero and unset amounts: included (paid is what counts), summed safely -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-06', dueDate:'2026-06-01', amount:100, paid:true },
+    { id:'p2', billId:'b1', period:'2026-06-08', dueDate:'2026-06-08', amount:0, paid:true },
+    { id:'p3', billId:'b1', period:'2026-06-15', dueDate:'2026-06-15', paid:true }   /* amount field entirely absent */
+  ];
+  var mZero = HIST.historyByMonth();
+  ok('a paid $0 payment is still counted as a payment, not dropped',
+     mZero['2026-06'] && mZero['2026-06'].length === 3, JSON.stringify(mZero));
+  HOPEN['2026-06'] = false;
+  var htmlZero = HIST.renderHistory();
+  ok('zero/unset amounts do not corrupt the rendered total (no NaN, sums only the real $100)',
+     /\$100\.00/.test(htmlZero) && !/NaN/.test(htmlZero), htmlZero.replace(/\s+/g,' '));
+  ok('zero/unset amounts still count toward the payment total shown',
+     /3 payments/.test(htmlZero), htmlZero.replace(/\s+/g,' '));
+
+  /* -- archived bills' payments are still real money spent -- */
+  HDB.bills = [
+    { id:'b1', name:'Rent', categoryId:'c1', archived:false },
+    { id:'b2', name:'Old Gym', categoryId:'c1', archived:true }
+  ];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-07', dueDate:'2026-07-01', amount:1000, paid:true },
+    { id:'p2', billId:'b2', period:'2026-07', dueDate:'2026-07-05', amount:40, paid:true }
+  ];
+  var mArch = HIST.historyByMonth();
+  ok('an archived bill’s paid payment is included in its month',
+     mArch['2026-07'] && mArch['2026-07'].length === 2, JSON.stringify(mArch));
+  HOPEN['2026-07'] = false;
+  var htmlArch = HIST.renderHistory();
+  ok('the archived bill’s amount is folded into the visible month total ($1040, not $1000)',
+     /\$1040\.00/.test(htmlArch), htmlArch.replace(/\s+/g,' '));
+
+  /* -- a deleted bill's stray payment is defensively excluded -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-07', dueDate:'2026-07-01', amount:1000, paid:true },
+    { id:'p2', billId:'gone', period:'2026-07', dueDate:'2026-07-10', amount:999, paid:true }
+  ];
+  var mGone = HIST.historyByMonth();
+  ok('a payment whose bill no longer exists is excluded, not counted as $999 of nothing',
+     mGone['2026-07'].length === 1 && mGone['2026-07'][0].id === 'p1', JSON.stringify(mGone));
+
+  /* -- weekly: several same-bill payments in one month all land in that
+     one bucket, correctly summed (real dueDates from CAD.occurrencesInMonth,
+     the already-tested cadence function — August 2026 has 5 Mondays) -- */
+  HDB.bills = [{ id:'b1', name:'Weekly Parking', categoryId:'c1', archived:false }];
+  var augMondays = CAD.occurrencesInMonth({ cadence:'weekly', dueWeekday:1 }, 2026, 7);
+  ok('fixture sanity: August 2026 really has 5 Mondays', augMondays.length === 5, augMondays.length);
+  HDB.payments = augMondays.map(function(o,i){
+    return { id:'wk'+i, billId:'b1', period:o.period, dueDate:o.dueDate, amount:20, paid:true };
+  });
+  var mWeekly = HIST.historyByMonth();
+  ok('all 5 weekly occurrences in the month land in one bucket, none dropped',
+     mWeekly['2026-08'] && mWeekly['2026-08'].length === 5, JSON.stringify(mWeekly));
+  HOPEN['2026-08'] = false;
+  var htmlWeekly = HIST.renderHistory();
+  ok('5 weekly payments at $20 sum to $100.00, not just the last one',
+     /\$100\.00/.test(htmlWeekly), htmlWeekly.replace(/\s+/g,' '));
+
+  /* -- biweekly: occurrences either side of a month boundary split correctly -- */
+  HDB.bills = [{ id:'b1', name:'Biweekly Thing', categoryId:'c1', archived:false }];
+  var biweeklyJanFeb = CAD.occurrencesInMonth({ cadence:'biweekly', anchorDate:'2026-01-29' }, 2026, 1)
+    .concat(CAD.occurrencesInMonth({ cadence:'biweekly', anchorDate:'2026-01-29' }, 2026, 0));
+  HDB.payments = biweeklyJanFeb.map(function(o,i){
+    return { id:'bw'+i, billId:'b1', period:o.period, dueDate:o.dueDate, amount:10, paid:true };
+  });
+  var mBiweekly = HIST.historyByMonth();
+  ok('biweekly occurrences on either side of a month boundary land in two separate months',
+     Object.keys(mBiweekly).sort().join(',') === '2026-01,2026-02', JSON.stringify(Object.keys(mBiweekly)));
+
+  /* -- a bill paid in a different month than it fell due: grouped by
+     dueDate, never paidAt (spend counts when it was OWED, not when the tap
+     happened) -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-01', dueDate:'2026-01-31', paidAt:'2026-02-03', amount:1000, paid:true }
+  ];
+  var mLate = HIST.historyByMonth();
+  ok('a bill due Jan 31 but paid Feb 3 counts toward January, not February',
+     !!mLate['2026-01'] && !mLate['2026-02'], JSON.stringify(Object.keys(mLate)));
+
+  /* -- a month with no payments produces no entry, not a phantom $0 row -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-01', dueDate:'2026-01-01', amount:1000, paid:true },
+    { id:'p2', billId:'b1', period:'2026-03', dueDate:'2026-03-01', amount:1000, paid:false }   /* Feb: nothing; March: unpaid */
+  ];
+  var mGap = HIST.historyByMonth();
+  ok('a month with zero paid payments (Feb) is absent from the map entirely',
+     !mGap['2026-02'] && !mGap['2026-03'] && !!mGap['2026-01'], JSON.stringify(Object.keys(mGap)));
+
+  /* -- overall-empty store renders the empty state, not a crash -- */
+  HDB.bills = []; HDB.payments = [];
+  var htmlEmpty = HIST.renderHistory();
+  ok('an empty store renders the "No history yet" empty state',
+     /No history yet/.test(htmlEmpty), htmlEmpty.replace(/\s+/g,' '));
+
+  /* -- newest-first ordering -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', archived:false }];
+  HDB.payments = [
+    { id:'p1', billId:'b1', period:'2026-01', dueDate:'2026-01-01', amount:100, paid:true },
+    { id:'p2', billId:'b1', period:'2026-06', dueDate:'2026-06-01', amount:200, paid:true },
+    { id:'p3', billId:'b1', period:'2026-03', dueDate:'2026-03-01', amount:300, paid:true }
+  ];
+  var htmlOrder = HIST.renderHistory();
+  var monthPositions = ['June 2026','March 2026','January 2026'].map(function(lbl){ return htmlOrder.indexOf(lbl); });
+  ok('months render newest-first regardless of payment insertion order',
+     monthPositions.every(function(p){ return p !== -1; }) &&
+     monthPositions[0] < monthPositions[1] && monthPositions[1] < monthPositions[2],
+     monthPositions.join(','));
+
+  /* -- backfillOccurrences: dedupes against periods that already have a
+     record, delegating to the real (already-tested) cadence generator -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', cadence:'monthly', dueDay:1, archived:false }];
+  HDB.payments = [{ id:'p1', billId:'b1', period:'2026-08', dueDate:'2026-08-01', amount:1000, paid:true }];
+  var bfOcc = HIST.backfillOccurrences(HDB.bills[0], '2026-08');
+  ok('backfillOccurrences excludes a month that already has a payment for this bill',
+     bfOcc.length === 0, JSON.stringify(bfOcc));
+  var bfOcc2 = HIST.backfillOccurrences(HDB.bills[0], '2026-09');
+  ok('backfillOccurrences offers a month with no existing payment, via the real cadence generator',
+     bfOcc2.length === 1 && bfOcc2[0].dueDate === '2026-09-01', JSON.stringify(bfOcc2));
+  var weeklyBill = { id:'b2', name:'Parking', categoryId:'c1', cadence:'weekly', dueWeekday:1, archived:false };
+  HDB.bills.push(weeklyBill);
+  var bfOccWeekly = HIST.backfillOccurrences(weeklyBill, '2026-08');
+  ok('backfillOccurrences on a weekly bill offers every occurrence in the month (5, none backfilled yet)',
+     bfOccWeekly.length === 5, bfOccWeekly.length);
+
+  /* -- buildBackfillPayment: the full decision tree -- */
+  HDB.bills = [{ id:'b1', name:'Rent', categoryId:'c1', cadence:'monthly', dueDay:1, archived:false }];
+  HDB.payments = [{ id:'p1', billId:'b1', period:'2026-08', dueDate:'2026-08-01', amount:1000, paid:true }];
+  var bfOk = HIST.buildBackfillPayment(HDB.bills[0], 2026, 8, '2026-09', '975');
+  ok('buildBackfillPayment returns a payment for a valid, unclaimed period',
+     !!bfOk.payment && !bfOk.error, JSON.stringify(bfOk));
+  if(bfOk.payment){
+    ok('the built payment is marked paid, with paidAt set to the generated dueDate',
+       bfOk.payment.paid === true && bfOk.payment.paidAt === '2026-09-01', JSON.stringify(bfOk.payment));
+    ok('the built payment carries the real dueDate from occurrencesInMonth, not a hand-built date',
+       bfOk.payment.dueDate === '2026-09-01' && bfOk.payment.period === '2026-09', JSON.stringify(bfOk.payment));
+    ok('the built payment carries the entered amount as a number',
+       bfOk.payment.amount === 975, bfOk.payment.amount);
+  }
+  var bfDup = HIST.buildBackfillPayment(HDB.bills[0], 2026, 7, '2026-08', '1000');
+  ok('buildBackfillPayment refuses a period that already has a payment',
+     bfDup.error === 'That period already has a payment.' && bfDup.duplicate === true, JSON.stringify(bfDup));
+  var bfStale = HIST.buildBackfillPayment(HDB.bills[0], 2026, 8, '2099-01', '50');
+  ok('buildBackfillPayment refuses a period the cadence would never produce for that month',
+     !!bfStale.error && !bfStale.duplicate, JSON.stringify(bfStale));
+  var bfBadAmt = HIST.buildBackfillPayment(HDB.bills[0], 2026, 10, '2026-11', '-5');
+  ok('buildBackfillPayment refuses a negative amount',
+     bfBadAmt.error === 'Enter an amount.', JSON.stringify(bfBadAmt));
+  var bfNaN = HIST.buildBackfillPayment(HDB.bills[0], 2026, 10, '2026-11', 'not-a-number');
+  ok('buildBackfillPayment refuses an unparseable amount',
+     bfNaN.error === 'Enter an amount.', JSON.stringify(bfNaN));
 }
 
 /* ---- install banner ------------------------------------------------------- */
